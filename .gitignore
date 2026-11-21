@@ -17,3 +17,6 @@ firmware/.vscode/
 firmware/managed_components/
 firmware/sdkconfig.*
 !firmware/sdkconfig.defaults
+
+# Consumer plugin development dependencies
+consumer-plugin/node_modules/

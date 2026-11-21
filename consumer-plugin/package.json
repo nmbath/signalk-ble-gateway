@@ -16,6 +16,7 @@
   "keywords": [
     "signalk-node-server-plugin",
     "signalk-webapp",
+    "signalk-plugin-configurator",
     "signalk-category-hardware",
     "victron",
     "bluetooth",
@@ -39,5 +40,9 @@
     "url": "https://github.com/haipule/signalk-ble-gateway/issues"
   },
   "homepage": "https://github.com/haipule/signalk-ble-gateway/tree/main/consumer-plugin#readme",
-  "license": "Apache-2.0"
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  }
 }

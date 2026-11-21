@@ -20,22 +20,37 @@ function normalizeKey(value) {
   return Buffer.from(value, 'hex')
 }
 
-function decodeEnvelope(advertisement, keyValue) {
+/**
+ * Read the unencrypted Instant Readout header: product ID, record type,
+ * nonce and key check byte. Only the readings after it are encrypted, so a
+ * device can be identified without its key.
+ *
+ * Returns null when the advertisement carries no Instant Readout record.
+ * Devices interleave other advertisements under the same company ID, for
+ * example VE.Smart Networking beacons with a leading 0x01 or 0x02; they are
+ * skipped rather than reported as errors.
+ */
+function readClearHeader(advertisement) {
   const manufacturerHex = advertisement?.manufacturerData?.[VICTRON_COMPANY_ID]
   if (manufacturerHex === undefined) return null
   const payload = parseHex(manufacturerHex)
-  // Devices interleave other advertisements under the same company ID, for
-  // example VE.Smart Networking beacons with a leading 0x01 or 0x02. They are
-  // not Instant Readout records and carry nothing this decoder can use, so
-  // they are skipped instead of reported as decode errors.
   if (payload[0] !== 0x10) return null
   if (payload.length < 9) throw new Error('Victron manufacturer payload is too short')
+  return {
+    payload,
+    modelId: payload.readUInt16LE(2),
+    recordType: payload[4],
+    nonce: payload.readUInt16LE(5),
+    keyCheck: payload[7]
+  }
+}
+
+function decodeEnvelope(advertisement, keyValue) {
+  const header = readClearHeader(advertisement)
+  if (!header) return null
+  const { payload, modelId, recordType, nonce, keyCheck } = header
 
   const key = normalizeKey(keyValue)
-  const modelId = payload.readUInt16LE(2)
-  const recordType = payload[4]
-  const nonce = payload.readUInt16LE(5)
-  const keyCheck = payload[7]
   if (keyCheck !== key[0]) throw new Error('advertisement key check failed')
 
   const counter = Buffer.alloc(16)
@@ -611,6 +626,8 @@ const RECORD_DECODERS = {
 }
 
 module.exports = {
+  RECORD_TYPES,
+  readClearHeader,
   decodeAuxInput,
   decodeBatteryMonitor,
   decodeBatteryProtect,

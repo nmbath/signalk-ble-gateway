@@ -62,37 +62,45 @@ function readout(modelId, keyHex) {
   return Buffer.concat([header, body]).toString('hex')
 }
 
-test('describes detected devices in the form and keeps them across a restart', () => {
+test('serves the configuration panel rows, kept across a restart', () => {
   const instance = harness()
   const key = '00112233445566778899AABBCCDDEEFF'
-  const shunt = 'AA:BB:CC:DD:EE:FF'
-  const sense = '11:22:33:44:55:66'
-  const rowFor = mac => {
-    const dependency = instance.plugin.schema().properties.devices.items.dependencies
-    return dependency?.mac.oneOf.find(branch =>
-      branch.properties.mac.pattern && new RegExp(branch.properties.mac.pattern, 'u').test(mac))
-  }
-  const settings = { devices: [
-    { id: 'house', name: 'House', mac: shunt.toLowerCase(), advertisementKey: key },
-    { id: 'starter', name: 'Starter', mac: sense, advertisementKey: key }
-  ] }
-
+  const settings = { devices: [{ id: '2', name: 'Starter', mac: '11:22:33:44:55:66', advertisementKey: key }] }
   instance.plugin.start(settings)
-  assert.equal(rowFor(shunt), undefined)
-
   const deliver = instance.advertisementCallbacks.get(instance.plugin.id)
-  deliver({ mac: sense, rssi: -70, name: 'Starter sense', manufacturerData: { 737: '0105000b27' } })
-  deliver({ mac: shunt, rssi: -60, manufacturerData: { 737: readout(0xa389, key) } })
-  deliver({ mac: sense, rssi: -74, manufacturerData: { 737: readout(0xa3a5, key) } })
-  assert.equal(rowFor(shunt).properties.secondaryBattery.type, 'string')
-  assert.equal(rowFor(sense).properties.secondaryBattery, undefined)
-  assert.match(rowFor(sense).description,
-    /^Detected: Smart Battery Sense \(Rev2\) \(0xA3A5\) · advertised as "Starter sense" · RSSI -74 dBm · last seen \d+ s ago$/)
+  deliver({ mac: '11:22:33:44:55:66', rssi: -70, name: 'Starter sense', manufacturerData: { 737: readout(0xa3a5, key) } })
+  deliver({ mac: 'aa:bb:cc:dd:ee:ff', rssi: -61, manufacturerData: { 737: readout(0xa389, '11112233445566778899AABBCCDDEEFF') } })
 
-  // Saving the configuration restarts the plugin; detection is kept.
+  const rows = () => {
+    const response = responseRecorder()
+    instance.routes.get('/devices')({}, response)
+    assert.equal(response.statusCode, 200)
+    return response.body.devices
+  }
+  const [sense, shunt] = rows()
+  assert.equal(sense.mac, '11:22:33:44:55:66')
+  assert.equal(sense.configured, true)
+  assert.equal(sense.online, true)
+  assert.equal(sense.advertisedName, 'Starter sense')
+  assert.equal(sense.modelName, 'Smart Battery Sense (Rev2)')
+  assert.equal(shunt.mac, 'AA:BB:CC:DD:EE:FF')
+  assert.equal(shunt.configured, false)
+  assert.equal(shunt.supportsSecondaryBattery, true)
+  assert.equal(JSON.stringify(rows()).includes(key), false)
+
+  // Saving the configuration restarts the plugin; what was heard is kept.
   instance.plugin.stop()
   instance.plugin.start(settings)
-  assert.match(rowFor(sense).description, /Smart Battery Sense/)
+  assert.equal(rows().length, 2)
+})
+
+test('declares a configuration panel instead of a generated form', () => {
+  const instance = harness()
+  const pkg = require('../package.json')
+  assert.equal(pkg.keywords.includes('signalk-plugin-configurator'), true)
+  assert.notEqual(pkg.type, 'module')
+  assert.equal(instance.plugin.uiSchema, undefined)
+  assert.equal(instance.plugin.schema.properties.devices.type, 'array')
 })
 
 test('publishes identity once per change and reception with every reading', () => {

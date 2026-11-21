@@ -157,13 +157,37 @@ Victron product, so no manufacturer is claimed for it. The model is the hex
 product ID when it is not known. Identity is published when it changes,
 `RSSI` and `lastSeen` with every reading.
 
-The plugin configuration page shows the same on each device row: the
-detected model, advertised name, RSSI and how long ago the device was last
-heard, as of when the page was loaded, or that it has not been detected yet.
+## Configuring devices
 
-Shutdown reason remains diagnostic-only, visible in the web application and
-the status API. Unknown record types stay visible as raw data and never
-produce guessed measurements.
+The plugin has its own configuration page in the Signal K admin UI (Server,
+Plugin Config, Victron BLE Consumer), in place of a generated form. It has
+two areas:
+
+- **Victron devices** lists every Victron device heard in the last 15
+  minutes, plus every configured device, in tabs: **Configured** first, then
+  by type (**Batteries**, **Solar**, **Chargers**, **Inverters**, **Other**).
+  Each row shows the advertised name, type, MAC address, RSSI, when it was
+  last heard, what it is configured as and its status (Online, Waiting,
+  Wrong key, Not heard, Disabled). The list refreshes every 5 seconds.
+- **Device settings**: click a device to add it, or to change it if it is
+  already configured. The MAC address and a display name are filled in from
+  what was heard; enter the advertisement key from VictronConnect (device
+  settings, Product info, Instant readout details, Show encryption data) and
+  a device ID, the Signal K instance such as `2` in
+  `electrical.batteries.2`. A BMV or SmartShunt also offers the secondary
+  battery ID. **Add device** or **Save** stores it, **Remove** deletes it.
+
+Devices are identified without their key: the product ID and record type
+travel in the unencrypted Instant Readout header, and the advertised name in
+clear. Up to 256 devices are remembered, the least recently heard dropped
+first; the list survives a plugin restart but not a server restart.
+
+The page is `public/remoteEntry.js`, loaded by the admin UI because
+`package.json` carries the keyword `signalk-plugin-configurator`. It is
+written without a bundler and uses the admin UI's own React, so the plugin
+has no build step and no runtime dependencies. It reads
+`/plugins/signalk-victron-ble-consumer/devices`, which needs an admin login
+and never returns advertisement keys.
 
 ## Records decoded from the specification but not yet tested
 
@@ -192,10 +216,8 @@ separate starter battery, set the optional **Secondary battery ID** on that
 device. An auxiliary voltage is then published as
 `electrical.batteries.<secondary-id>.voltage`; temperature and mid-point modes
 never use this mapping. Leave the option empty to retain the default behavior.
-The option appears in the configuration form only on a device the plugin has
-already identified as a BMV or SmartShunt from its advertised model ID: let
-the device be heard, then reload the plugin configuration page. A value saved
-earlier is kept while the option is hidden.
+The device settings offer the option only for a device identified as a BMV
+or SmartShunt from its advertised model ID, or one that already has a value.
 The DC energy meter has no mid-point reading, so that selector is rejected for
 it rather than producing a value the record does not carry.
 

@@ -1,16 +1,19 @@
 'use strict'
 
-const { buildSchema } = require('./lib/config-schema')
+const { CONFIG_SCHEMA } = require('./lib/config-schema')
 const { VictronConsumer } = require('./lib/consumer')
+const { deviceRows } = require('./lib/device-list')
+const { VictronDiscovery } = require('./lib/discovery')
 
 module.exports = function createPlugin(app) {
   let consumer = null
   let listener = null
-  // What was last detected per MAC: model ID, RSSI and decode time, plus the
-  // advertised name. Kept across plugin restarts (saving the configuration
-  // restarts the plugin) so the form keeps showing what each device is.
-  const detections = new Map()
-  const advertisedNames = new Map()
+  // Every Victron device heard, configured or not, identified from the
+  // unencrypted parts of its advertisements. Kept across plugin restarts
+  // (saving the configuration restarts the plugin) so the configuration panel
+  // keeps showing what was heard.
+  const discovery = new VictronDiscovery()
+  let configured = []
   // Identity last published per device ID, so it is sent only on change.
   let publishedIdentity = new Map()
 
@@ -19,17 +22,13 @@ module.exports = function createPlugin(app) {
     name: 'Signal K Victron BLE Consumer',
     description: 'Decodes configured Victron BLE advertisements server-side',
 
-    // Rebuilt each time the admin UI loads the plugin list, so each device
-    // row shows what was detected, and the secondary battery option appears
-    // once a BMV or SmartShunt has been detected.
-    schema: () => buildSchema(detectedDevices(detections, advertisedNames)),
+    // The admin UI shows the plugin's own panel (public/remoteEntry.js,
+    // keyword signalk-plugin-configurator) instead of a generated form.
+    schema: CONFIG_SCHEMA,
 
     start(settings = {}) {
-      consumer = new VictronConsumer(
-        Array.isArray(settings.devices) ? settings.devices : [],
-        Date.now,
-        { advertisedNames }
-      )
+      configured = Array.isArray(settings.devices) ? settings.devices : []
+      consumer = new VictronConsumer(configured, Date.now, { advertisedNames: discovery.names })
       publishedIdentity = new Map()
       if (!app.bleApi || typeof app.bleApi.onAdvertisement !== 'function') {
         app.setPluginError(
@@ -39,11 +38,11 @@ module.exports = function createPlugin(app) {
         return
       }
       listener = advertisement => {
+        discovery.observe(advertisement)
         const result = consumer.accept(advertisement)
         if (result && !result.state.decode_error && result.state.decoded) {
           const { device, state } = result
           const reception = { rssi: state.rssi, lastSeen: state.last_seen }
-          detections.set(device.mac, { modelId: state.decoded.model_id, ...reception })
           this.publishIdentity(device, state.decoded)
           if (state.decoded.measurements) {
             app.handleMessage(this.id, measurementDelta(device, state.decoded, reception))
@@ -59,7 +58,7 @@ module.exports = function createPlugin(app) {
     },
 
     publishIdentity(device, decoded) {
-      const delta = identityDelta(device, decoded, advertisedNames.get(device.mac))
+      const delta = identityDelta(device, decoded, discovery.names.get(device.mac) || null)
       const key = JSON.stringify(delta.updates[0].values)
       if (publishedIdentity.get(device.id) === key) return
       publishedIdentity.set(device.id, key)
@@ -74,6 +73,17 @@ module.exports = function createPlugin(app) {
     },
 
     registerWithRouter(router) {
+      // Rows for the configuration panel: devices heard and configured, with
+      // their decode state. Never includes advertisement keys.
+      router.get('/devices', (_request, response) => {
+        response.status(200).json({
+          devices: deviceRows({
+            discovered: discovery.list(),
+            configured,
+            states: consumer ? consumer.status().devices : []
+          })
+        })
+      })
       router.get('/status', (_request, response) => {
         response.status(200).json(consumer ? consumer.status() : {
           received: 0, decoded: 0, ignored: 0, errors: 0, devices: []
@@ -81,14 +91,6 @@ module.exports = function createPlugin(app) {
       })
     }
   }
-}
-
-function detectedDevices(detections, advertisedNames) {
-  return [...detections].map(([mac, detection]) => ({
-    mac,
-    ...detection,
-    advertisedName: advertisedNames.get(mac) || null
-  }))
 }
 
 // Signal K enumerates chargingMode as bulk, acceptance, overcharge, float,

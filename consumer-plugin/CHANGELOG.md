@@ -9,10 +9,12 @@
 - Show the name a device advertises over BLE in the status API and web
   application.
 - Escape values placed in the web application's markup.
-- Show the Secondary battery ID option in the configuration form only on
-  devices detected as a BMV or SmartShunt, instead of on every device.
-- Show on each device row of the configuration page what was detected: the
-  model, advertised name, RSSI and when it was last heard.
+- Replace the generated configuration form with the plugin's own
+  configuration page. It lists every Victron device heard, identified from
+  the unencrypted header without a key, in Configured and type tabs styled
+  like the BLE Manager, with RSSI, last seen and the status of configured
+  devices. Clicking a device opens its settings to add it, or to change or
+  remove it; the MAC address and name are filled in from what was heard.
 - Publish each device as a Signal K sensor, `sensors.<MAC>`, with `name`,
   `sensorType` (the model), `vendor`, `advertisedName`, `RSSI` and
   `lastSeen`, and with `dataType` and `instance` linking it to the item its
