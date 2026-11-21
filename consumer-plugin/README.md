@@ -170,7 +170,8 @@ two areas:
   Meters**; **Other**).
   Each row shows the advertised name, type, MAC address, RSSI, when it was
   last heard, what it is configured as and its status (Online, Waiting,
-  Wrong key, Not heard, Disabled). The list refreshes every 5 seconds.
+  Wrong key, Not heard, Disabled). The list refreshes every 5 seconds and
+  is ordered by type, then name, so rows stay put as signal strength changes.
 - **Device settings**: click a device to add it, or to change it if it is
   already configured. The MAC address and a display name are filled in from
   what was heard; enter the advertisement key from VictronConnect (device

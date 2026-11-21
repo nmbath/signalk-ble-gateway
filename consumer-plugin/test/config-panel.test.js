@@ -107,10 +107,23 @@ test('lists configured devices from the configuration being edited', () => {
     devices: [...CONFIGURATION.devices, { id: 'house', name: 'House', mac: '11:22:33:44:55:66' }]
   })
   assert.deepEqual(rows.map(row => [row.mac, row.configured]), [
-    [SENSE_ROW.mac, true], ['11:22:33:44:55:66', true], [MPPT_ROW.mac, false]
+    [SENSE_ROW.mac, true], [MPPT_ROW.mac, false], ['11:22:33:44:55:66', true]
   ])
   assert.equal(rows[0].displayName, 'Starter Battery')
-  assert.equal(rows[1].lastSeen, null)
+  assert.equal(rows[2].lastSeen, null)
+})
+
+test('orders devices by type and name, not by signal strength', () => {
+  const battery = (mac, advertisedName, rssi) => ({ ...SENSE_ROW, mac, advertisedName, rssi })
+  const rows = [
+    MPPT_ROW, battery('00:00:00:00:00:01', null, -40), battery('00:00:00:00:00:02', 'Battery 10', -50),
+    battery('00:00:00:00:00:03', 'battery 2', -90), SHUNT_ROW
+  ]
+  const order = list => panel.mergeRows(list, {}).map(row => row.mac)
+  // Unnamed batteries follow the named ones, by MAC address
+  const expected = ['00:00:00:00:00:03', '00:00:00:00:00:02', '00:00:00:00:00:01', SHUNT_ROW.mac, MPPT_ROW.mac]
+  assert.deepEqual(order(rows), expected)
+  assert.deepEqual(order(rows.reverse().map(row => ({ ...row, rssi: -row.rssi }))), expected)
 })
 
 test('groups devices into Configured and type tabs', () => {

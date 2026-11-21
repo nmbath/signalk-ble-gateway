@@ -148,11 +148,33 @@
         enabled: device.enabled !== false
       }))
     })
-    return Array.from(byMac.values()).sort(function (a, b) {
-      return (Number(b.configured) - Number(a.configured)) ||
-        ((b.rssi === null ? -Infinity : b.rssi) - (a.rssi === null ? -Infinity : a.rssi)) ||
-        a.mac.localeCompare(b.mac)
-    })
+    return Array.from(byMac.values()).sort(compareRows)
+  }
+
+  // Natural order, so "Battery 2" sorts before "Battery 10"
+  var NAME_ORDER = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
+
+  function tabIndexOf(row) {
+    var key = typeTabOf(row)
+    var index = TYPE_TABS.findIndex(function (tab) { return tab.key === key })
+    return index < 0 ? TYPE_TABS.length : index
+  }
+
+  function nameOf(row) {
+    return row.advertisedName || row.displayName || ''
+  }
+
+  /**
+   * A fixed order that does not change as signal strength and last seen do:
+   * by type tab, then name, with unnamed devices last, then MAC address.
+   */
+  function compareRows(a, b) {
+    var nameA = nameOf(a)
+    var nameB = nameOf(b)
+    return (tabIndexOf(a) - tabIndexOf(b)) ||
+      (Number(!nameA) - Number(!nameB)) ||
+      NAME_ORDER.compare(nameA, nameB) ||
+      a.mac.localeCompare(b.mac)
   }
 
   /** The editable fields for a row: its configuration, or a new device. */
