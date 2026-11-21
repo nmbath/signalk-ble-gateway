@@ -14,7 +14,7 @@ module.exports = function createPlugin(app) {
   // keeps showing what was heard.
   const discovery = new VictronDiscovery()
   let configured = []
-  // Identity last published per device ID, so it is sent only on change.
+  // Identity last published per device MAC, so it is sent only on change.
   let publishedIdentity = new Map()
 
   return {
@@ -60,8 +60,8 @@ module.exports = function createPlugin(app) {
     publishIdentity(device, decoded) {
       const delta = identityDelta(device, decoded, discovery.names.get(device.mac) || null)
       const key = JSON.stringify(delta.updates[0].values)
-      if (publishedIdentity.get(device.id) === key) return
-      publishedIdentity.set(device.id, key)
+      if (publishedIdentity.get(device.mac) === key) return
+      publishedIdentity.set(device.mac, key)
       app.handleMessage(this.id, delta)
     },
 
@@ -81,6 +81,7 @@ module.exports = function createPlugin(app) {
           running: Boolean(listener),
           devices: deviceRows({
             discovered: discovery.list(),
+            groupOf: deviceGroup,
             configured,
             states: consumer ? consumer.status().devices : []
           })
@@ -145,12 +146,52 @@ function deviceGroup(recordType) {
 }
 
 /**
- * Signal K base path of a device, or null for a record type that publishes
- * nothing.
+ * A configured path below a group: one or more dot-separated segments, such
+ * as `1` or `1.lithium.2`. A leading dot is allowed and ignored.
+ */
+function relativePath(value) {
+  return typeof value === 'string' ? value.trim().replace(/^\./, '') : ''
+}
+
+/**
+ * Signal K base path of a device's readings, its group followed by its
+ * configured `id`: `electrical.batteries.1`, or with the ID `1.lithium.2`,
+ * `electrical.batteries.1.lithium.2` for a battery that is part of bank 1.
+ * Null for a record type that publishes nothing, or a device without an ID.
  */
 function devicePath(device, recordType) {
   const group = deviceGroup(recordType)
-  return group ? `${group}.${device.id}` : null
+  const id = relativePath(device.id)
+  return group && id ? `${group}.${id}` : null
+}
+
+/**
+ * Base path of the battery a BMV/SmartShunt's auxiliary voltage is published
+ * to: `electrical.batteries.<secondaryBattery>`.
+ */
+function secondaryBatteryPath(value) {
+  const id = relativePath(value)
+  return id ? `electrical.batteries.${id}` : null
+}
+
+/**
+ * Source of the device's deltas, shown by Signal K as
+ * `signalk-victron-ble-consumer.<name>`: the display name, or the MAC when
+ * none is set.
+ */
+function sourceOf(device) {
+  const name = typeof device.name === 'string' ? device.name.trim() : ''
+  return { label: 'Victron BLE', src: name || device.mac }
+}
+
+/**
+ * The `dataType` and `instance` linking `sensors.<MAC>` to the device's
+ * readings, so that `<dataType>.<instance>` is always its base path: the
+ * path split at its last segment.
+ */
+function dataLink(base) {
+  const split = base.lastIndexOf('.')
+  return { dataType: base.slice(0, split), instance: base.slice(split + 1) }
 }
 
 /**
@@ -185,21 +226,19 @@ function measurementDelta(device, decoded, reception = {}) {
   // A BMV/SmartShunt can advertise its auxiliary input as a starter battery
   // voltage. When configured, expose that reading as a separate Signal K
   // battery so existing consumers can use the standard battery voltage path.
+  const secondary = secondaryBatteryPath(device.secondaryBattery)
   if (
     decoded.record_type === 0x02 &&
-    device.secondaryBattery &&
+    secondary &&
     values.aux_input === 'aux_voltage' &&
     values.aux_voltage_v != null
   ) {
-    candidates.push([
-      `electrical.batteries.${device.secondaryBattery}.voltage`,
-      values.aux_voltage_v
-    ])
+    candidates.push([`${secondary}.voltage`, values.aux_voltage_v])
   }
 
   return {
     updates: [{
-      source: { label: 'Victron BLE', src: device.id },
+      source: sourceOf(device),
       timestamp: new Date().toISOString(),
       values: candidates
         .filter(([, value]) => value != null)
@@ -345,34 +384,34 @@ const VICTRON_VENDOR = 'Victron Energy'
  * (the configured display name), `sensorType` (the model named from the
  * advertised product ID, or the hex ID when the model is not in the table),
  * `vendor`, and `advertisedName` when the device broadcasts one. It also
- * links to the item its readings are published under: `dataType` (the
- * group, for example `electrical.batteries`) and `instance` (the configured
- * device ID), so `electrical.batteries.2` is `<dataType>.<instance>`.
+ * links to the item its readings are published under, its base path split
+ * at the last segment: `dataType` (for example `electrical.batteries`) and
+ * `instance` (`2`), so `electrical.batteries.2` is `<dataType>.<instance>`.
  *
- * The measured item, `electrical.<group>.<id>`, gets only its `name`: a
+ * The measured item, at the base path, gets only its `name`: a
  * battery watched by a Smart Battery Sense or SmartShunt is not itself a
  * Victron product, so no manufacturer is claimed for it.
  */
 function identityDelta(device, decoded, advertisedName) {
   const sensor = sensorPath(device)
-  const group = deviceGroup(decoded.record_type)
   const base = devicePath(device, decoded.record_type)
+  const link = base ? dataLink(base) : null
   const modelId = `0x${decoded.model_id.toString(16).toUpperCase().padStart(4, '0')}`
-  const name = device.name || device.id
+  const name = device.name || device.mac
   const values = [
     [`${sensor}.name`, name],
     [`${sensor}.sensorType`, decoded.model_name || modelId],
     [`${sensor}.vendor`, VICTRON_VENDOR],
     [`${sensor}.advertisedName`, advertisedName],
     ...(base ? [
-      [`${sensor}.dataType`, group],
-      [`${sensor}.instance`, String(device.id)],
+      [`${sensor}.dataType`, link.dataType],
+      [`${sensor}.instance`, link.instance],
       [`${base}.name`, name]
     ] : [])
   ]
   return {
     updates: [{
-      source: { label: 'Victron BLE', src: device.id },
+      source: sourceOf(device),
       timestamp: new Date().toISOString(),
       values: values
         .filter(([, value]) => value != null)

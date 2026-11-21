@@ -46,8 +46,9 @@ cd ~/.signalk
 npm link signalk-victron-ble-consumer
 ```
 
-Restart Signal K, enable the plugin, and configure each device with a stable
-ID, display name, BLE MAC address, and 32-character advertisement key. The
+Restart Signal K, enable the plugin, and configure each device with a
+display name, Signal K path, BLE MAC address, and 32-character advertisement
+key. The
 gateway provider must be enabled at the same time.
 
 The diagnostic web application is available at:
@@ -57,6 +58,9 @@ http://SIGNALK-SERVER:3000/signalk-victron-ble-consumer/
 ```
 
 Keys are never returned by the status API or web application.
+
+In the paths below, `<id>` stands for the device's configured **Signal K
+path**, which goes below the group: `1` gives `electrical.batteries.1`.
 
 Lynx Smart BMS voltage, current, state of charge, time remaining, and
 temperature are published below `electrical.batteries.<id>`. The web
@@ -135,11 +139,11 @@ sensors.<MAC>.vendor           Victron Energy
 sensors.<MAC>.advertisedName   name advertised over BLE, when there is one
 sensors.<MAC>.RSSI             signal strength, dBm
 sensors.<MAC>.lastSeen         time of the last decoded reading
-sensors.<MAC>.dataType         group the readings go to, e.g. electrical.batteries
-sensors.<MAC>.instance         instance within that group, the device ID
+sensors.<MAC>.dataType         path of the readings less its last segment, e.g. electrical.batteries
+sensors.<MAC>.instance         last segment of that path, e.g. 2
 ```
 
-For example, a Smart Battery Sense configured with ID `2`:
+For example, a Smart Battery Sense configured with the path `2`:
 
 ```text
 sensors.D5-9E-F7-D6-F6-92.sensorType   Smart Battery Sense (Rev2)
@@ -157,6 +161,18 @@ Victron product, so no manufacturer is claimed for it. The model is the hex
 product ID when it is not known. Identity is published when it changes,
 `RSSI` and `lastSeen` with every reading.
 
+The path can have more than one segment. Two lithium batteries that make up
+bank 1 can be `1.lithium.1` and `1.lithium.2`, publishing below
+`electrical.batteries.1.lithium.1` and `electrical.batteries.1.lithium.2`.
+For the first, `dataType` is `electrical.batteries.1.lithium` and
+`instance` is `1`, so `<dataType>.<instance>` is still where the readings
+are. A leading dot, as in `.1.lithium.1`, is ignored.
+
+The source of a device's data is its display name, so Signal K shows it as
+`signalk-victron-ble-consumer.<name>`, e.g.
+`signalk-victron-ble-consumer.12v Bat 1`. Names must therefore differ, and
+renaming a device changes its source.
+
 ## Configuring devices
 
 The plugin has its own configuration page in the Signal K admin UI (Server,
@@ -172,16 +188,18 @@ yet) and so enables the plugin; the devices it hears then appear.
   inverters and inverter/chargers; **Smart BatteryProtect**; **DC Energy
   Meters**; **Other**).
   Each row shows the name, type, MAC address, RSSI, when it was last heard,
-  the device ID and its status (Online, Waiting,
+  its Signal K path and its status (Online, Waiting,
   Wrong key, Not heard, Disabled). The list refreshes every 5 seconds and
   is ordered by type, then name, so rows stay put as signal strength changes.
 - **Device settings**: click a device to add it, or to change it if it is
   already configured. The MAC address and a display name are filled in from
   what was heard; enter the advertisement key from VictronConnect (device
   settings, Product info, Instant readout details, Show encryption data) and
-  a device ID, the Signal K instance such as `2` in
-  `electrical.batteries.2`. A BMV or SmartShunt also offers the secondary
-  battery ID. **Add device** or **Save** stores it, **Remove** deletes it.
+  the **Signal K path** below the device's group, shown in front of the
+  field: `2` for `electrical.batteries.2`. Two devices cannot share a path
+  in the same group. A type Signal K has no group for (Smart
+  BatteryProtect, Multi RS, VE.Bus, DC energy meter) needs none. A BMV or
+  SmartShunt also offers the secondary battery path. **Add device** or **Save** stores it, **Remove** deletes it.
 
   The Name column shows a configured device's display name, otherwise the
   name it advertises. One advertisement carries at most 29 characters of
@@ -224,9 +242,9 @@ mid-point voltage, or temperature. Only the selected reading is returned; the
 others are null, because the same bits mean different things per device
 configuration. Mid-point voltage has no Signal K leaf and remains available in
 the status API only. For a BMV or SmartShunt whose auxiliary input measures a
-separate starter battery, set the optional **Secondary battery ID** on that
-device. An auxiliary voltage is then published as
-`electrical.batteries.<secondary-id>.voltage`; temperature and mid-point modes
+separate starter battery, set the optional **Secondary battery path** on
+that device. An auxiliary voltage is then published as
+`electrical.batteries.<secondary path>.voltage`; temperature and mid-point modes
 never use this mapping. Leave the option empty to retain the default behavior.
 The device settings offer the option only for a device identified as a BMV
 or SmartShunt from its advertised model ID that sends battery monitor records

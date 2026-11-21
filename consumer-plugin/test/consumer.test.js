@@ -118,3 +118,15 @@ test('a device that never decoded stays offline after errors', () => {
   assert.equal(device.online, false)
   assert.equal(device.decoded, null)
 })
+
+test('keeps the state of each device by MAC', () => {
+  const clock = { t: 1000 }
+  const consumer = new VictronConsumer([
+    { id: '1.lithium.1', name: 'Bat 1', mac: MAC, advertisementKey: KEY },
+    { id: '1.lithium.2', name: 'Bat 2', mac: 'AA:BB:CC:DD:EE:01', advertisementKey: KEY }
+  ], () => clock.t)
+  consumer.accept(readout(1))
+  const [first, second] = consumer.status().devices
+  assert.deepEqual([first.online, first.id], [true, '1.lithium.1'])
+  assert.deepEqual([second.online, second.decoded], [false, null])
+})

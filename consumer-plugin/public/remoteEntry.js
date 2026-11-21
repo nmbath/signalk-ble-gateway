@@ -26,8 +26,10 @@
   var RSSI_FAIR_DBM = -85
   var JUST_NOW_MAX_S = 5
   var KEY_PATTERN = /^[0-9a-fA-F]{32}$/
-  // A device ID becomes one Signal K path segment, e.g. electrical.batteries.<id>
-  var ID_PATTERN = /^[A-Za-z0-9_-]+$/
+  // The path below a device's group, e.g. 1 for electrical.batteries.1 or
+  // 1.lithium.2 for electrical.batteries.1.lithium.2; a leading dot is ignored
+  var ID_PATTERN = /^\.?[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*$/
+  var SECONDARY_GROUP = 'electrical.batteries'
   var LIST_MAX_HEIGHT = '320px'
   // The longest name one advertisement can carry: 31 bytes, less the 2-byte
   // AD header. Devices with longer names send them shortened to fit.
@@ -202,7 +204,10 @@
         id: existing.id || '',
         advertisementKey: existing.advertisementKey || '',
         enabled: existing.enabled !== false,
-        secondaryBattery: existing.secondaryBattery || ''
+        secondaryBattery: existing.secondaryBattery || '',
+        group: row.group || null,
+        // A type Signal K has no group for publishes no readings, so needs no path
+        needsPath: Boolean(row.group) || !row.recordName
       }
     }
     return {
@@ -212,33 +217,64 @@
       id: '',
       advertisementKey: '',
       enabled: true,
-      secondaryBattery: ''
+      secondaryBattery: '',
+      group: row.group || null,
+      needsPath: Boolean(row.group) || !row.recordName
     }
   }
 
-  /** Field errors of a draft, keyed by field; empty when it can be saved. */
-  function validate(draft, configuration) {
+  /** A path below a group as stored: trimmed, without a leading dot. */
+  function relativePath(value) {
+    return String(value || '').trim().replace(/^\./, '')
+  }
+
+  /**
+   * The Signal K path a configured row publishes to, its group followed by
+   * its ID, e.g. electrical.batteries.1.lithium.2; the ID alone when the
+   * group is not known.
+   */
+  function pathOf(row) {
+    var id = relativePath(row.deviceId)
+    if (!id) return null
+    return row.group ? row.group + '.' + id : id
+  }
+
+  /**
+   * Field errors of a draft, keyed by field; empty when it can be saved.
+   * `rows` (the merged rows) give the group of other devices: two devices
+   * may use the same ID only in different groups.
+   */
+  function validate(draft, configuration, rows) {
     var errors = {}
+    var groupByMac = new Map((rows || []).map(function (row) { return [row.mac, row.group || null] }))
     var others = configuredDevices(configuration).filter(function (device) {
       return normalizeMac(device.mac) !== draft.mac
     })
-    var id = draft.id.trim()
-    if (!draft.name.trim()) errors.name = 'Enter a display name.'
+    var name = draft.name.trim()
+    if (!name) {
+      errors.name = 'Enter a display name.'
+    } else if (others.some(function (device) { return NAME_ORDER.compare(String(device.name || '').trim(), name) === 0 })) {
+      errors.name = 'Another device has this name. Names must differ, as the name is the source of the data.'
+    }
+    var id = relativePath(draft.id)
     if (!id) {
-      errors.id = 'Enter an ID.'
-    } else if (!ID_PATTERN.test(id)) {
-      errors.id = 'Use letters, digits, - or _ only.'
-    } else if (others.some(function (device) { return device.id === id })) {
-      errors.id = 'Another device already uses this ID.'
+      if (draft.needsPath !== false) errors.id = 'Enter the path, e.g. 1.'
+    } else if (!ID_PATTERN.test(draft.id.trim())) {
+      errors.id = 'Use dot-separated letters, digits, - or _, e.g. 1 or 1.lithium.2.'
+    } else if (others.some(function (device) {
+      var group = groupByMac.get(normalizeMac(device.mac)) || null
+      return relativePath(device.id) === id && (!group || !draft.group || group === draft.group)
+    })) {
+      errors.id = 'Another device already publishes to this path.'
     }
     if (!KEY_PATTERN.test(draft.advertisementKey.trim())) {
       errors.advertisementKey = 'The key is 32 hexadecimal characters.'
     }
-    var secondary = draft.secondaryBattery.trim()
-    if (secondary && !ID_PATTERN.test(secondary)) {
-      errors.secondaryBattery = 'Use letters, digits, - or _ only.'
-    } else if (secondary && secondary === id) {
-      errors.secondaryBattery = 'Must differ from the device ID.'
+    var secondary = relativePath(draft.secondaryBattery)
+    if (secondary && !ID_PATTERN.test(draft.secondaryBattery.trim())) {
+      errors.secondaryBattery = 'Use dot-separated letters, digits, - or _, e.g. 2.'
+    } else if (secondary && secondary === id && draft.group === SECONDARY_GROUP) {
+      errors.secondaryBattery = 'Must differ from the device\'s own path.'
     }
     return errors
   }
@@ -252,14 +288,15 @@
     var devices = configuredDevices(configuration)
     var index = devices.findIndex(function (device) { return normalizeMac(device.mac) === draft.mac })
     var device = Object.assign({}, index >= 0 ? devices[index] : {}, {
-      id: draft.id.trim(),
+      id: relativePath(draft.id),
       name: draft.name.trim(),
       mac: draft.mac,
       advertisementKey: draft.advertisementKey.trim().toLowerCase(),
       enabled: draft.enabled
     })
-    if (draft.secondaryBattery.trim()) {
-      device.secondaryBattery = draft.secondaryBattery.trim()
+    if (!device.id) delete device.id
+    if (relativePath(draft.secondaryBattery)) {
+      device.secondaryBattery = relativePath(draft.secondaryBattery)
     } else {
       delete device.secondaryBattery
     }
@@ -304,28 +341,34 @@
 
     function field(props) {
       var error = props.errors[props.name]
+      var input = h('input', {
+        id: 'victron-ble-' + props.name,
+        className: 'form-control form-control-sm' + (props.mono ? ' font-monospace' : '') + (error ? ' is-invalid' : ''),
+        type: 'text',
+        value: props.draft[props.name],
+        placeholder: props.placeholder,
+        maxLength: props.maxLength,
+        autoComplete: 'off',
+        spellCheck: false,
+        onChange: function (event) { props.onChange(props.name, event.target.value) }
+      })
+      var invalid = error ? h('div', { className: 'invalid-feedback' }, error) : null
+      var help = !error && props.help ? h('div', { className: 'form-text' }, props.help) : null
       return h('div', { className: props.width },
         h('label', { className: 'form-label', htmlFor: 'victron-ble-' + props.name }, props.label),
-        h('input', {
-          id: 'victron-ble-' + props.name,
-          className: 'form-control form-control-sm' + (props.mono ? ' font-monospace' : '') + (error ? ' is-invalid' : ''),
-          type: 'text',
-          value: props.draft[props.name],
-          placeholder: props.placeholder,
-          maxLength: props.maxLength,
-          autoComplete: 'off',
-          spellCheck: false,
-          onChange: function (event) { props.onChange(props.name, event.target.value) }
-        }),
-        error
-          ? h('div', { className: 'invalid-feedback' }, error)
-          : props.help ? h('div', { className: 'form-text' }, props.help) : null)
+        // A prefix (the group the path goes below) shows as part of the input
+        props.prefix
+          ? h('div', { className: 'input-group input-group-sm has-validation' },
+            h('span', { className: 'input-group-text font-monospace' }, props.prefix + '.'), input, invalid)
+          : input,
+        props.prefix ? null : invalid,
+        help)
     }
 
     function Editor(props) {
       var draft = props.draft
       var row = props.row
-      var errors = props.showErrors ? validate(draft, props.configuration) : {}
+      var errors = props.showErrors ? validate(draft, props.configuration, props.rows) : {}
       var showSecondary = row.supportsSecondaryBattery || Boolean(draft.secondaryBattery)
       var onChange = function (name, value) {
         props.setDraft(Object.assign({}, draft, { [name]: value }))
@@ -341,23 +384,27 @@
           h('span', { className: 'text-body-secondary ms-2 font-monospace small' }, row.mac)),
         h('div', { className: 'row g-3' },
           field(fieldProps({
-            name: 'name', label: 'Display name', width: 'col-md-4', placeholder: 'e.g. Starter Battery',
+            name: 'name', label: 'Display name', width: 'col-md-6', placeholder: 'e.g. Starter Battery',
             help: mayBeShortened(row.advertisedName) && draft.name === row.advertisedName
               ? 'The device may have shortened its advertised name to fit Bluetooth\'s 29 characters; check it is complete.'
-              : null
-          })),
-          field(fieldProps({
-            name: 'id', label: 'Device ID', width: 'col-md-2', placeholder: 'e.g. 2',
-            help: 'Signal K instance, e.g. electrical.batteries.<ID>'
+              : 'Also the source of its data in Signal K, so it must be unique.'
           })),
           field(fieldProps({
             name: 'advertisementKey', label: 'Advertisement key', width: 'col-md-6', mono: true, maxLength: 32,
             placeholder: '32 hexadecimal characters',
             help: 'VictronConnect: device settings, Product info, Instant readout details, Show encryption data'
           })),
+          draft.needsPath || draft.id ? field(fieldProps({
+            name: 'id', label: 'Signal K path', width: 'col-md-6', mono: true, prefix: row.group,
+            placeholder: 'e.g. 1',
+            help: 'Where its readings go below ' + (row.group || 'its group') +
+              ', e.g. 1, or 1.lithium.2 for a battery that is part of bank 1.'
+          })) : h('div', { className: 'col-md-6 form-text' },
+            'Signal K has no group for this type of device, so it publishes only its identity, under sensors.<MAC>.'),
           showSecondary ? field(fieldProps({
-            name: 'secondaryBattery', label: 'Secondary battery ID', width: 'col-md-4', placeholder: 'optional',
-            help: 'Publish the auxiliary (starter) voltage as electrical.batteries.<ID>'
+            name: 'secondaryBattery', label: 'Secondary battery path', width: 'col-md-6', mono: true,
+            prefix: SECONDARY_GROUP, placeholder: 'optional, e.g. 2',
+            help: 'Publish the auxiliary (starter) voltage as a battery of its own'
           })) : null,
           h('div', { className: 'col-12' },
             h('div', { className: 'form-check' },
@@ -394,7 +441,7 @@
       h('td', null, h('code', null, row.mac)),
       h('td', null, row.rssi === null ? '-' : badge(rssiColor(row.rssi), row.rssi + ' dBm')),
       h('td', null, formatAge(row.lastSeen, props.now)),
-      h('td', null, row.configured && row.deviceId ? row.deviceId : '-'),
+      h('td', null, row.configured && pathOf(row) ? h('code', null, pathOf(row)) : '-'),
       h('td', null, status ? badge(status.color, status.label) : h('span', { className: 'text-body-secondary' }, 'Not configured')))
     }
 
@@ -405,7 +452,7 @@
       return h('div', { className: 'table-responsive', style: { maxHeight: LIST_MAX_HEIGHT, overflowY: 'auto' } },
         h('table', { className: 'table table-hover table-striped table-sm mb-0' },
           h('thead', { className: 'sticky-top' }, h('tr', null,
-            ['Name', 'Type', 'MAC Address', 'RSSI', 'Last Seen', 'Device ID', 'Status'].map(function (title) {
+            ['Name', 'Type', 'MAC Address', 'RSSI', 'Last Seen', 'Signal K path', 'Status'].map(function (title) {
               return h('th', { key: title }, title)
             }))),
           h('tbody', null, props.rows.map(function (row) {
@@ -496,7 +543,7 @@
         setShowErrors(false)
       }
       function save() {
-        if (Object.keys(validate(draft, configuration)).length > 0) {
+        if (Object.keys(validate(draft, configuration, rows)).length > 0) {
           setShowErrors(true)
           return
         }
@@ -559,7 +606,7 @@
             messageState[0] ? h('div', { className: 'alert alert-success py-2' }, messageState[0]) : null,
             draft && selectedRow
               ? h(Editor, {
-                row: selectedRow, draft: draft, setDraft: setDraft, configuration: configuration,
+                row: selectedRow, rows: rows, draft: draft, setDraft: setDraft, configuration: configuration,
                 showErrors: showErrorsState[0], onSave: save, onRemove: remove, onCancel: close
               })
               : messageState[0] ? null : h('p', { className: 'text-body-secondary mb-0' },
@@ -623,6 +670,7 @@
     nameOf: nameOf,
     removeDevice: removeDevice,
     startConfiguration: startConfiguration,
+    pathOf: pathOf,
     rssiColor: rssiColor,
     statusOf: statusOf,
     tabsFor: tabsFor,

@@ -19,8 +19,17 @@ const CONFIG_SCHEMA = Object.freeze({
         type: 'object',
         required: ['id', 'name', 'mac', 'advertisementKey'],
         properties: {
-          id: { title: 'Stable device ID', type: 'string' },
-          name: { title: 'Display name', type: 'string' },
+          id: {
+            title: 'Signal K path',
+            description: 'Path below the device\'s group: 1 for electrical.batteries.1, 1.lithium.2 for electrical.batteries.1.lithium.2',
+            type: 'string',
+            pattern: '^\\.?[A-Za-z0-9_-]+(\\.[A-Za-z0-9_-]+)*$'
+          },
+          name: {
+            title: 'Display name',
+            description: 'Unique; also the source of the device\'s data, signalk-victron-ble-consumer.<name>',
+            type: 'string'
+          },
           mac: { title: 'BLE MAC address', type: 'string' },
           advertisementKey: {
             title: 'Victron advertisement key',
@@ -29,8 +38,8 @@ const CONFIG_SCHEMA = Object.freeze({
             maxLength: 32
           },
           secondaryBattery: {
-            title: 'Secondary battery ID',
-            description: 'BMV/SmartShunt only: publish the auxiliary voltage as a separate Signal K battery',
+            title: 'Secondary battery path',
+            description: 'BMV/SmartShunt only: publish the auxiliary voltage as electrical.batteries.<path>',
             type: 'string'
           },
           enabled: { title: 'Enabled', type: 'boolean', default: true }

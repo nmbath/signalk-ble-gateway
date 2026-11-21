@@ -224,6 +224,40 @@ test('publishes SmartLithium cells and balancer status like bt-sensors', () => {
   assert.match(meta['electrical.batteries.10.balancerStatus'].description, /balancing/)
 })
 
+test('publishes below a nested path, linked from the sensor', () => {
+  const device = { id: '1.lithium.1', name: '12v Bat 1', mac: 'C6:88:36:CE:9C:99' }
+  const decoded = { record_type: 0x05, model_id: 0xa3e9, model_name: 'Smart Lithium', measurements: { battery_voltage_v: 13.12, cell_voltages_v: [] } }
+  const delta = measurementDelta(device, decoded, { rssi: -73, lastSeen: '2026-11-21T23:34:40.587Z' })
+  assert.deepEqual(delta.updates[0].values.map(({ path }) => path), [
+    'electrical.batteries.1.lithium.1.voltage',
+    'sensors.C6-88-36-CE-9C-99.RSSI',
+    'sensors.C6-88-36-CE-9C-99.lastSeen'
+  ])
+  const identity = Object.fromEntries(identityDelta(device, decoded, null).updates[0].values.map(({ path, value }) => [path, value]))
+  assert.equal(identity['sensors.C6-88-36-CE-9C-99.dataType'], 'electrical.batteries.1.lithium')
+  assert.equal(identity['sensors.C6-88-36-CE-9C-99.instance'], '1')
+  assert.equal(identity['electrical.batteries.1.lithium.1.name'], '12v Bat 1')
+  // A leading dot is ignored
+  assert.equal(measurementDelta({ ...device, id: '.1.lithium.1' }, decoded, {}).updates[0].values[0].path,
+    'electrical.batteries.1.lithium.1.voltage')
+})
+
+test('two batteries of one bank publish apart, each with its name as the source', () => {
+  const bat = n => ({ id: `1.lithium.${n}`, name: `12v Bat ${n}`, mac: `C6:88:36:CE:9C:9${n}` })
+  const decoded = { record_type: 0x05, model_id: 0xa3e9, measurements: { battery_voltage_v: 13.12, cell_voltages_v: [] } }
+  const deltas = [bat(1), bat(2)].map(device => measurementDelta(device, decoded, {}).updates[0])
+  assert.deepEqual(deltas.map(update => [update.source.src, update.values[0].path]), [
+    ['12v Bat 1', 'electrical.batteries.1.lithium.1.voltage'],
+    ['12v Bat 2', 'electrical.batteries.1.lithium.2.voltage']
+  ])
+  assert.equal(identityDelta(bat(1), decoded, null).updates[0].source.src, '12v Bat 1')
+  // Without a name the MAC identifies the source
+  assert.equal(measurementDelta({ id: '5', mac: 'C6:88:36:CE:9C:91' }, decoded, {}).updates[0].source.src,
+    'C6:88:36:CE:9C:91')
+  // Without an ID there is nowhere to publish readings
+  assert.deepEqual(measurementDelta({ name: 'x' }, decoded, {}).updates[0].values, [])
+})
+
 test('publishes Orion output and input measurements on charger paths', () => {
   const delta = measurementDelta({ id: 'orionSt' }, {
     record_type: 0x0f,
@@ -349,6 +383,14 @@ test('optionally publishes BMV auxiliary voltage as a secondary battery', () => 
     { path: 'electrical.batteries.house.voltage', value: 12.8 },
     { path: 'electrical.batteries.starter.voltage', value: 12.6 }
   ])
+})
+
+test('publishes the secondary battery to a nested path', () => {
+  const delta = measurementDelta({ secondaryBattery: 'engine.start' }, {
+    record_type: 0x02,
+    measurements: { aux_input: 'aux_voltage', aux_voltage_v: 12.6 }
+  })
+  assert.deepEqual(delta.updates[0].values, [{ path: 'electrical.batteries.engine.start.voltage', value: 12.6 }])
 })
 
 test('does not publish a secondary battery without its optional ID', () => {

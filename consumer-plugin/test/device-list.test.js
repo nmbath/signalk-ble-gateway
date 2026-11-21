@@ -13,8 +13,10 @@ const MPPT = { mac: 'F3:E0:07:06:6C:F9', modelId: 0xa060, recordType: 0x01, rssi
 const STALE = { mac: 'AA:00:00:00:00:01', modelId: 0xa389, recordType: 0x02, rssi: -40, lastSeen: ago(20 * 60), advertisedName: null }
 
 test('lists heard devices with what needs no key', () => {
-  const [row] = deviceRows({ discovered: [SENSE] }, NOW)
+  const groupOf = recordType => recordType === 0x02 ? 'electrical.batteries' : null
+  const [row] = deviceRows({ discovered: [SENSE], groupOf }, NOW)
   assert.deepEqual(row, {
+    group: 'electrical.batteries',
     mac: SENSE.mac,
     modelId: 0xa3a5,
     modelName: 'Smart Battery Sense (Rev2)',
@@ -31,7 +33,7 @@ test('joins configuration and decode state, never keys', () => {
   const rows = deviceRows({
     discovered: [SENSE, SHUNT],
     configured: [{ id: '2', name: 'Starter', mac: 'd5:9e:f7:d6:f6:92', advertisementKey: 'secret'.padEnd(32, '0') }],
-    states: [{ id: '2', online: false, decode_error: 'advertisement key check failed' }]
+    states: [{ mac: 'D5:9E:F7:D6:F6:92', online: false, decode_error: 'advertisement key check failed' }]
   }, NOW)
   const sense = rows.find(row => row.mac === SENSE.mac)
   assert.equal(sense.configured, true)

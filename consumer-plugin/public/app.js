@@ -25,7 +25,7 @@ function render(status) {
   devices.replaceChildren()
   for (const device of status.devices) {
     const card = template.content.cloneNode(true)
-    card.querySelector('h3').textContent = device.name || device.id
+    card.querySelector('h3').textContent = device.name || device.mac
     card.querySelector('.mac').textContent = device.mac
     const state = card.querySelector('.state')
     state.textContent = device.online ? 'Online' : 'Waiting'

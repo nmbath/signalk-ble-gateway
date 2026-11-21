@@ -12,9 +12,9 @@ function normalizeMac(value) {
 
 function publicDevice(device, state) {
   return {
-    id: device.id,
     name: device.name,
     mac: normalizeMac(device.mac),
+    id: device.id,
     enabled: device.enabled !== false,
     key_configured: typeof device.advertisementKey === 'string' && device.advertisementKey.length > 0,
     ...state
@@ -76,28 +76,28 @@ class VictronConsumer {
         decode_error: null,
         decoded
       }
-      this.decodedAt.set(device.id, this.now())
-      this.states.set(device.id, state)
+      this.decodedAt.set(device.mac, this.now())
+      this.states.set(device.mac, state)
       return { device, state }
     } catch (error) {
       this.errors += 1
       // Keep the last good reading: one bad packet must not erase it.
-      const previous = this.states.get(device.id)
+      const previous = this.states.get(device.mac)
       const state = {
-        online: this.isOnline(device.id),
+        online: this.isOnline(device.mac),
         last_seen: new Date(this.now()).toISOString(),
         gateway_id: advertisement.gateway_id,
         rssi: advertisement.rssi,
         decode_error: error.message,
         decoded: previous?.decoded || null
       }
-      this.states.set(device.id, state)
+      this.states.set(device.mac, state)
       return { device, state }
     }
   }
 
-  isOnline(id) {
-    const decodedAt = this.decodedAt.get(id)
+  isOnline(mac) {
+    const decodedAt = this.decodedAt.get(mac)
     return decodedAt !== undefined && this.now() - decodedAt <= this.onlineTimeoutMs
   }
 
@@ -108,9 +108,9 @@ class VictronConsumer {
       ignored: this.ignored,
       errors: this.errors,
       devices: this.devices.map(device => publicDevice(device, {
-        ...(this.states.has(device.id) ? {
-          ...this.states.get(device.id),
-          online: this.isOnline(device.id)
+        ...(this.states.has(device.mac) ? {
+          ...this.states.get(device.mac),
+          online: this.isOnline(device.mac)
         } : {
           online: false,
           last_seen: null,

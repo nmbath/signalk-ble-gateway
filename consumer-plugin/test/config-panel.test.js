@@ -63,8 +63,9 @@ test('loads as a classic script that the admin UI does not take for a React 16 r
 test('fills a new device from what was heard', () => {
   assert.deepEqual(panel.draftFor(SENSE_ROW, {}), {
     isNew: true, mac: SENSE_ROW.mac, name: 'Starter Battery', id: '', advertisementKey: '',
-    enabled: true, secondaryBattery: ''
+    enabled: true, secondaryBattery: '', group: null, needsPath: false
   })
+  assert.deepEqual(panel.draftFor({ ...SENSE_ROW, group: 'electrical.batteries' }, {}).needsPath, true)
   assert.equal(panel.draftFor(SHUNT_ROW, {}).name, 'SmartShunt 500A/50mV')
   const existing = panel.draftFor(SENSE_ROW, CONFIGURATION)
   assert.equal(existing.isNew, false)
@@ -73,14 +74,35 @@ test('fills a new device from what was heard', () => {
 })
 
 test('validates the fields before saving', () => {
-  const draft = { ...panel.draftFor(MPPT_ROW, CONFIGURATION), name: ' ', id: '2', advertisementKey: 'abc', secondaryBattery: 'a.b' }
-  assert.deepEqual(Object.keys(panel.validate(draft, CONFIGURATION)).sort(),
+  const rows = panel.mergeRows([{ ...SENSE_ROW, group: 'electrical.batteries' }, { ...MPPT_ROW, group: 'electrical.solar' }], CONFIGURATION)
+  const mppt = rows.find(row => row.mac === MPPT_ROW.mac)
+  const draft = { ...panel.draftFor(mppt, CONFIGURATION), name: ' ', id: 'a b', advertisementKey: 'abc', secondaryBattery: 'a..b' }
+  assert.deepEqual(Object.keys(panel.validate(draft, CONFIGURATION, rows)).sort(),
     ['advertisementKey', 'id', 'name', 'secondaryBattery'])
-  assert.match(panel.validate(draft, CONFIGURATION).id, /already uses/)
-  assert.deepEqual(panel.validate({ ...draft, name: 'Solar', id: 'solar1', advertisementKey: KEY.toUpperCase(), secondaryBattery: '' }, CONFIGURATION), {})
-  assert.match(panel.validate({ ...draft, id: 'x y' }, CONFIGURATION).id, /letters, digits/)
-  // Changing a device may keep its own ID
-  assert.deepEqual(panel.validate(panel.draftFor(SENSE_ROW, CONFIGURATION), CONFIGURATION), {})
+  assert.match(panel.validate(draft, CONFIGURATION, rows).id, /dot-separated/)
+  const valid = { ...draft, name: 'Solar', id: '1', advertisementKey: KEY.toUpperCase(), secondaryBattery: '' }
+  assert.deepEqual(panel.validate(valid, CONFIGURATION, rows), {})
+  assert.match(panel.validate({ ...valid, id: '' }, CONFIGURATION, rows).id, /Enter the path/)
+  // The name is the source of the data, so two devices cannot share it
+  assert.match(panel.validate({ ...valid, name: 'starter battery' }, CONFIGURATION, rows).name, /Another device has this name/)
+  // The same path below another group is a different path
+  assert.deepEqual(panel.validate({ ...valid, id: '2' }, CONFIGURATION, rows), {})
+  assert.match(panel.validate({ ...valid, id: '2', group: 'electrical.batteries' }, CONFIGURATION, rows).id, /already publishes/)
+  // Changing a device may keep its own name and path
+  assert.deepEqual(panel.validate(panel.draftFor(rows[0], CONFIGURATION), CONFIGURATION, rows), {})
+})
+
+test('two batteries of one bank each get a path below it', () => {
+  const battery = mac => ({ ...SENSE_ROW, mac, group: 'electrical.batteries' })
+  const bank = { devices: [{ id: '1.lithium.1', name: 'Bat 1', mac: '00:00:00:00:00:01', advertisementKey: KEY }] }
+  const rows = panel.mergeRows([battery('00:00:00:00:00:01'), battery('00:00:00:00:00:02')], bank)
+  const second = { ...panel.draftFor(rows[1], bank), name: 'Bat 2', advertisementKey: KEY }
+  assert.match(panel.validate({ ...second, id: '1.lithium.1' }, bank, rows).id, /already publishes/)
+  assert.match(panel.validate({ ...second, id: '.1.lithium.1' }, bank, rows).id, /already publishes/)
+  assert.deepEqual(panel.validate({ ...second, id: '.1.lithium.2' }, bank, rows), {})
+  // Saved without the leading dot
+  assert.equal(panel.applyDraft(bank, { ...second, id: '.1.lithium.2' }).devices[1].id, '1.lithium.2')
+  assert.equal(panel.pathOf(rows[0]), 'electrical.batteries.1.lithium.1')
 })
 
 test('adds, changes and removes devices in the configuration', () => {
@@ -176,24 +198,29 @@ test('renders the settings of a device, with secondary battery only for a shunt'
     showErrors: true, onSave: () => {}, onRemove: () => {}, onCancel: () => {}
   }))
 
-  const shunt = render(SHUNT_ROW)
+  const shunt = render({ ...SHUNT_ROW, group: 'electrical.batteries' })
   assert.match(shunt, /Add <\/strong><strong>SmartShunt 500A\/50mV/)
-  assert.match(shunt, /Secondary battery ID/)
+  assert.match(shunt, /Secondary battery path/)
+  assert.match(shunt, /input-group-text font-monospace">electrical.batteries.</)
   assert.match(shunt, />Add device</)
   assert.equal(shunt.includes('>Remove<'), false)
   assert.match(shunt, /is-invalid/)
 
   const sense = render(SENSE_ROW)
-  assert.equal(sense.includes('Secondary battery ID'), false)
+  assert.equal(sense.includes('Secondary battery path'), false)
   assert.match(sense, />Save</)
   assert.match(sense, />Remove</)
   assert.equal(sense.includes('is-invalid'), false)
+
+  const protect = render({ ...SENSE_ROW, mac: 'AA:00:00:00:00:09', recordName: 'battery_protect', group: null })
+  assert.equal(protect.includes('Signal K path'), false)
+  assert.match(protect, /no group for this type of device/)
 })
 
 test('lists configured devices by the name the user gave them', () => {
   const shortened = { ...SENSE_ROW, advertisedName: '24v Lithium House Bank NG (40' }
   const configuration = { devices: [{ id: 'house', name: '24v Lithium House Bank NG (400Ah)', mac: SENSE_ROW.mac }] }
-  const [row] = panel.mergeRows([shortened], configuration)
+  const [row] = panel.mergeRows([{ ...shortened, group: 'electrical.batteries' }], configuration)
   assert.equal(panel.nameOf(row), '24v Lithium House Bank NG (400Ah)')
   assert.equal(panel.nameOf(panel.mergeRows([shortened], {})[0]), '24v Lithium House Bank NG (40')
 
@@ -202,7 +229,7 @@ test('lists configured devices by the name the user gave them', () => {
     rows: [row], now: NOW, selected: null, onSelect: () => {}, empty: ''
   }))
   assert.match(html, /<td title="Advertised as 24v Lithium House Bank NG \(40">24v Lithium House Bank NG \(400Ah\)<\/td>/)
-  assert.match(html, /<td>house<\/td>/)
+  assert.match(html, /<td><code>electrical.batteries.house<\/code><\/td>/)
 })
 
 test('warns that an advertised name filling a whole advertisement may be shortened', () => {

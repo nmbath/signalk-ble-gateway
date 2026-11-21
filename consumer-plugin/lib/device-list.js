@@ -27,24 +27,26 @@ function normalizeMac(value) {
  * @param {object[]} options.discovered from VictronDiscovery.list()
  * @param {object[]} options.configured the configured devices
  * @param {object[]} options.states VictronConsumer.status().devices
+ * @param {function} options.groupOf record type -> Signal K group the device
+ *   publishes under (e.g. `electrical.batteries`), or null
  * @param {number} now current time in milliseconds
  */
-function deviceRows({ discovered = [], configured = [], states = [] } = {}, now = Date.now()) {
+function deviceRows({ discovered = [], configured = [], states = [], groupOf = () => null } = {}, now = Date.now()) {
   const heard = new Map(discovered.map(device => [device.mac, device]))
-  const stateById = new Map(states.map(state => [state.id, state]))
+  const stateByMac = new Map(states.map(state => [normalizeMac(state.mac), state]))
   const rows = new Map()
 
   for (const device of discovered) {
     if (now - Date.parse(device.lastSeen) > HEARD_WINDOW_MS) continue
-    rows.set(device.mac, heardRow(device))
+    rows.set(device.mac, heardRow(device, groupOf))
   }
   for (const device of configured) {
     const mac = normalizeMac(device && device.mac)
     if (!mac) continue
     const seen = heard.get(mac)
-    const state = stateById.get(device.id) || {}
+    const state = stateByMac.get(mac) || {}
     rows.set(mac, {
-      ...(seen ? heardRow(seen) : emptyRow(mac)),
+      ...(seen ? heardRow(seen, groupOf) : emptyRow(mac)),
       configured: true,
       deviceId: device.id || null,
       displayName: device.name || null,
@@ -60,8 +62,9 @@ function deviceRows({ discovered = [], configured = [], states = [] } = {}, now 
     a.mac.localeCompare(b.mac))
 }
 
-function heardRow(device) {
+function heardRow(device, groupOf) {
   return {
+    group: groupOf(device.recordType) || null,
     mac: device.mac,
     modelId: device.modelId,
     modelName: modelName(device.modelId),
@@ -78,6 +81,7 @@ function heardRow(device) {
 
 function emptyRow(mac) {
   return {
+    group: null,
     mac,
     modelId: null,
     modelName: null,
