@@ -438,6 +438,8 @@
       var setNow = nowState[1]
       var tabState = React.useState(null)
       var setTab = tabState[1]
+      var runningState = React.useState(true)
+      var setRunning = runningState[1]
 
       React.useEffect(function () {
         var stopped = false
@@ -450,6 +452,7 @@
             .then(function (body) {
               if (stopped) return
               setServerRows(body.devices || [])
+              setRunning(body.running !== false)
               setLoadError(null)
               setNow(Date.now())
             })
@@ -522,9 +525,14 @@
           h('div', { className: 'card-body' },
             errorState[0] ? h('div', { className: 'alert alert-warning py-2' },
               'Could not load the devices heard (' + errorState[0] + '). Is the plugin enabled?') : null,
+            !errorState[0] && !runningState[0] ? h('div', { className: 'alert alert-warning py-2' },
+              'The plugin is not running, so it is not listening for Victron devices. ' +
+              'Enable it and submit; the devices it hears then appear here.') : null,
             rows.length === 0 && serverRows !== null
               ? h('p', { className: 'text-body-secondary mb-0' },
-                'No Victron devices heard yet. Make sure the plugin is enabled and Bluetooth is scanning.')
+                runningState[0]
+                  ? 'No Victron devices heard yet. Make sure Bluetooth is scanning (Server, BLE Manager).'
+                  : 'No devices to show until the plugin is running.')
               : list)),
         h('div', { className: 'card' },
           h('div', { className: 'card-header' }, h('strong', null, 'Device settings')),

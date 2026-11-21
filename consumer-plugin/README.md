@@ -161,7 +161,9 @@ product ID when it is not known. Identity is published when it changes,
 
 The plugin has its own configuration page in the Signal K admin UI (Server,
 Plugin Config, Victron BLE Consumer), in place of a generated form. It has
-two areas:
+two areas. The plugin only listens for devices while it is enabled, so
+enable it first; until then the page says it is not running and lists
+nothing.
 
 - **Victron devices** lists every Victron device heard in the last 15
   minutes, plus every configured device, in tabs: **Configured** first, then

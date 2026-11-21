@@ -71,12 +71,14 @@ test('serves the configuration panel rows, kept across a restart', () => {
   deliver({ mac: '11:22:33:44:55:66', rssi: -70, name: 'Starter sense', manufacturerData: { 737: readout(0xa3a5, key) } })
   deliver({ mac: 'aa:bb:cc:dd:ee:ff', rssi: -61, manufacturerData: { 737: readout(0xa389, '11112233445566778899AABBCCDDEEFF') } })
 
-  const rows = () => {
+  const devices = () => {
     const response = responseRecorder()
     instance.routes.get('/devices')({}, response)
     assert.equal(response.statusCode, 200)
-    return response.body.devices
+    return response.body
   }
+  const rows = () => devices().devices
+  assert.equal(devices().running, true)
   const [sense, shunt] = rows()
   assert.equal(sense.mac, '11:22:33:44:55:66')
   assert.equal(sense.configured, true)
@@ -90,8 +92,11 @@ test('serves the configuration panel rows, kept across a restart', () => {
 
   // Saving the configuration restarts the plugin; what was heard is kept.
   instance.plugin.stop()
+  // A stopped (disabled) plugin says so, so the panel can explain the empty list
+  assert.equal(devices().running, false)
   instance.plugin.start(settings)
   assert.equal(rows().length, 2)
+  assert.equal(devices().running, true)
 })
 
 test('declares a configuration panel instead of a generated form', () => {

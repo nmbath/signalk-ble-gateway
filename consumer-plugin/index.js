@@ -74,9 +74,11 @@ module.exports = function createPlugin(app) {
 
     registerWithRouter(router) {
       // Rows for the configuration panel: devices heard and configured, with
-      // their decode state. Never includes advertisement keys.
+      // their decode state. Never includes advertisement keys. `running` says
+      // whether the plugin is listening; a disabled plugin hears nothing.
       router.get('/devices', (_request, response) => {
         response.status(200).json({
+          running: Boolean(listener),
           devices: deviceRows({
             discovered: discovery.list(),
             configured,
