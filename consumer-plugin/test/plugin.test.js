@@ -4,7 +4,7 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const { EventEmitter } = require('node:events')
 const createPlugin = require('../index')
-const { measurementDelta } = require('../index')
+const { identityDelta, measurementDelta, sensorPath } = require('../index')
 
 function harness() {
   const app = new EventEmitter()
@@ -62,14 +62,15 @@ function readout(modelId, keyHex) {
   return Buffer.concat([header, body]).toString('hex')
 }
 
-test('offers the secondary battery option once a shunt has been detected', () => {
+test('describes detected devices in the form and keeps them across a restart', () => {
   const instance = harness()
   const key = '00112233445566778899AABBCCDDEEFF'
   const shunt = 'AA:BB:CC:DD:EE:FF'
   const sense = '11:22:33:44:55:66'
-  const macsOffered = () => {
+  const rowFor = mac => {
     const dependency = instance.plugin.schema().properties.devices.items.dependencies
-    return dependency ? new RegExp(dependency.mac.oneOf[0].properties.mac.pattern) : null
+    return dependency?.mac.oneOf.find(branch =>
+      branch.properties.mac.pattern && new RegExp(branch.properties.mac.pattern, 'u').test(mac))
   }
   const settings = { devices: [
     { id: 'house', name: 'House', mac: shunt.toLowerCase(), advertisementKey: key },
@@ -77,18 +78,73 @@ test('offers the secondary battery option once a shunt has been detected', () =>
   ] }
 
   instance.plugin.start(settings)
-  assert.equal(macsOffered(), null)
+  assert.equal(rowFor(shunt), undefined)
 
   const deliver = instance.advertisementCallbacks.get(instance.plugin.id)
+  deliver({ mac: sense, rssi: -70, name: 'Starter sense', manufacturerData: { 737: '0105000b27' } })
   deliver({ mac: shunt, rssi: -60, manufacturerData: { 737: readout(0xa389, key) } })
-  deliver({ mac: sense, rssi: -60, manufacturerData: { 737: readout(0xa3a5, key) } })
-  assert.equal(macsOffered().test(shunt), true)
-  assert.equal(macsOffered().test(sense), false)
+  deliver({ mac: sense, rssi: -74, manufacturerData: { 737: readout(0xa3a5, key) } })
+  assert.equal(rowFor(shunt).properties.secondaryBattery.type, 'string')
+  assert.equal(rowFor(sense).properties.secondaryBattery, undefined)
+  assert.match(rowFor(sense).description,
+    /^Detected: Smart Battery Sense \(Rev2\) \(0xA3A5\) · advertised as "Starter sense" · RSSI -74 dBm · last seen \d+ s ago$/)
 
   // Saving the configuration restarts the plugin; detection is kept.
   instance.plugin.stop()
   instance.plugin.start(settings)
-  assert.equal(macsOffered().test(shunt), true)
+  assert.match(rowFor(sense).description, /Smart Battery Sense/)
+})
+
+test('publishes identity once per change and reception with every reading', () => {
+  const instance = harness()
+  const deltas = []
+  instance.app.handleMessage = (_id, delta) => deltas.push(delta)
+  const key = '00112233445566778899AABBCCDDEEFF'
+  const mac = '11:22:33:44:55:66'
+  instance.plugin.start({ devices: [{ id: 'starter', name: 'Starter Battery', mac, advertisementKey: key }] })
+  const deliver = instance.advertisementCallbacks.get(instance.plugin.id)
+  const valuesOf = delta => Object.fromEntries(delta.updates[0].values.map(({ path, value }) => [path, value]))
+
+  deliver({ mac, rssi: -74, manufacturerData: { 737: readout(0xa3a5, key) } })
+  deliver({ mac, rssi: -75, manufacturerData: { 737: readout(0xa3a5, key) } })
+  const identities = deltas.filter(delta => delta.updates[0].meta)
+  assert.equal(identities.length, 1)
+  assert.deepEqual(valuesOf(identities[0]), {
+    'sensors.11-22-33-44-55-66.name': 'Starter Battery',
+    'sensors.11-22-33-44-55-66.sensorType': 'Smart Battery Sense (Rev2)',
+    'sensors.11-22-33-44-55-66.vendor': 'Victron Energy',
+    'sensors.11-22-33-44-55-66.dataType': 'electrical.batteries',
+    'sensors.11-22-33-44-55-66.instance': 'starter',
+    'electrical.batteries.starter.name': 'Starter Battery'
+  })
+  const readings = deltas.filter(delta => !delta.updates[0].meta).map(valuesOf)
+  assert.deepEqual(readings.map(values => values['sensors.11-22-33-44-55-66.RSSI']), [-74, -75])
+  assert.match(readings[1]['sensors.11-22-33-44-55-66.lastSeen'], /^\d{4}-\d{2}-\d{2}T/)
+  assert.equal(deltas.flatMap(delta => delta.updates[0].values).some(({ path }) => /\.ble\.|manufacturer/.test(path)), false)
+
+  // A newly advertised name changes the identity, so it is published again.
+  deliver({ mac, rssi: -70, name: '12v Starter', manufacturerData: { 737: '0105000b27' } })
+  deliver({ mac, rssi: -74, manufacturerData: { 737: readout(0xa3a5, key) } })
+  const latest = deltas.filter(delta => delta.updates[0].meta).at(-1)
+  assert.equal(valuesOf(latest)['sensors.11-22-33-44-55-66.advertisedName'], '12v Starter')
+})
+
+test('identifies a sensor without an electrical group, with no data link', () => {
+  const delta = identityDelta(
+    { id: 'protect', name: 'Protect', mac: 'aa:bb:cc:dd:ee:ff' },
+    { record_type: 0x09, model_id: 0xfffe, model_name: null },
+    null
+  )
+  const paths = Object.fromEntries(delta.updates[0].values.map(({ path, value }) => [path, value]))
+  assert.deepEqual(paths, {
+    'sensors.AA-BB-CC-DD-EE-FF.name': 'Protect',
+    'sensors.AA-BB-CC-DD-EE-FF.sensorType': '0xFFFE',
+    'sensors.AA-BB-CC-DD-EE-FF.vendor': 'Victron Energy'
+  })
+})
+
+test('keys the sensor path by MAC written with dashes', () => {
+  assert.equal(sensorPath({ mac: ' d5:9e:f7:d6:f6:92 ' }), 'sensors.D5-9E-F7-D6-F6-92')
 })
 
 test('status route masks configured keys', () => {

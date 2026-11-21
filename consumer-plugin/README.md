@@ -123,6 +123,44 @@ defines no leaf for either. They carry the exact VE.Direct names, for example
 precise device state is preserved. A code without a settled meaning is
 published as `unknown_<n>` rather than guessed.
 
+## Device identity and reception
+
+Each Victron device is also published as a Signal K sensor, keyed by its MAC
+address written with dashes, so the path is stable across renames:
+
+```text
+sensors.<MAC>.name             configured display name
+sensors.<MAC>.sensorType       model from the product ID
+sensors.<MAC>.vendor           Victron Energy
+sensors.<MAC>.advertisedName   name advertised over BLE, when there is one
+sensors.<MAC>.RSSI             signal strength, dBm
+sensors.<MAC>.lastSeen         time of the last decoded reading
+sensors.<MAC>.dataType         group the readings go to, e.g. electrical.batteries
+sensors.<MAC>.instance         instance within that group, the device ID
+```
+
+For example, a Smart Battery Sense configured with ID `2`:
+
+```text
+sensors.D5-9E-F7-D6-F6-92.sensorType   Smart Battery Sense (Rev2)
+sensors.D5-9E-F7-D6-F6-92.dataType     electrical.batteries
+sensors.D5-9E-F7-D6-F6-92.instance     2
+electrical.batteries.2.voltage         its readings
+```
+
+`<dataType>.<instance>` is where the readings are published, which links a
+sensor to the battery, charger or inverter it measures. A record type
+without a Signal K group (Smart Battery Protect, Multi RS, VE.Bus, DC energy
+meter) has no `dataType` or `instance`. The measured item itself gets only
+its `name`: a battery watched by a Smart Battery Sense or SmartShunt is not a
+Victron product, so no manufacturer is claimed for it. The model is the hex
+product ID when it is not known. Identity is published when it changes,
+`RSSI` and `lastSeen` with every reading.
+
+The plugin configuration page shows the same on each device row: the
+detected model, advertised name, RSSI and how long ago the device was last
+heard, as of when the page was loaded, or that it has not been detected yet.
+
 Shutdown reason remains diagnostic-only, visible in the web application and
 the status API. Unknown record types stay visible as raw data and never
 produce guessed measurements.

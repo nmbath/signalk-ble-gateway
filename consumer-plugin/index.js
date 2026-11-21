@@ -2,26 +2,35 @@
 
 const { buildSchema } = require('./lib/config-schema')
 const { VictronConsumer } = require('./lib/consumer')
-const { isShuntBatteryMonitor } = require('./lib/victron-models')
 
 module.exports = function createPlugin(app) {
   let consumer = null
   let listener = null
-  // Model ID last decoded per MAC. Kept across plugin restarts (saving the
-  // configuration restarts the plugin) so the form keeps its detected types.
-  const detectedModels = new Map()
+  // What was last detected per MAC: model ID, RSSI and decode time, plus the
+  // advertised name. Kept across plugin restarts (saving the configuration
+  // restarts the plugin) so the form keeps showing what each device is.
+  const detections = new Map()
+  const advertisedNames = new Map()
+  // Identity last published per device ID, so it is sent only on change.
+  let publishedIdentity = new Map()
 
   return {
     id: 'signalk-victron-ble-consumer',
     name: 'Signal K Victron BLE Consumer',
     description: 'Decodes configured Victron BLE advertisements server-side',
 
-    // Rebuilt each time the admin UI loads the plugin list, so the secondary
-    // battery option appears once a BMV or SmartShunt has been detected.
-    schema: () => buildSchema(secondaryBatteryMacs(detectedModels)),
+    // Rebuilt each time the admin UI loads the plugin list, so each device
+    // row shows what was detected, and the secondary battery option appears
+    // once a BMV or SmartShunt has been detected.
+    schema: () => buildSchema(detectedDevices(detections, advertisedNames)),
 
     start(settings = {}) {
-      consumer = new VictronConsumer(Array.isArray(settings.devices) ? settings.devices : [])
+      consumer = new VictronConsumer(
+        Array.isArray(settings.devices) ? settings.devices : [],
+        Date.now,
+        { advertisedNames }
+      )
+      publishedIdentity = new Map()
       if (!app.bleApi || typeof app.bleApi.onAdvertisement !== 'function') {
         app.setPluginError(
           'Signal K BLE Provider API unavailable. This plugin requires a ' +
@@ -31,9 +40,14 @@ module.exports = function createPlugin(app) {
       }
       listener = advertisement => {
         const result = consumer.accept(advertisement)
-        if (result?.state.decoded) detectedModels.set(result.device.mac, result.state.decoded.model_id)
-        if (result && !result.state.decode_error && result.state.decoded?.measurements) {
-          app.handleMessage(this.id, measurementDelta(result.device, result.state.decoded))
+        if (result && !result.state.decode_error && result.state.decoded) {
+          const { device, state } = result
+          const reception = { rssi: state.rssi, lastSeen: state.last_seen }
+          detections.set(device.mac, { modelId: state.decoded.model_id, ...reception })
+          this.publishIdentity(device, state.decoded)
+          if (state.decoded.measurements) {
+            app.handleMessage(this.id, measurementDelta(device, state.decoded, reception))
+          }
         }
         const status = consumer.status()
         app.setPluginStatus(
@@ -42,6 +56,14 @@ module.exports = function createPlugin(app) {
       }
       listener = app.bleApi.onAdvertisement(this.id, listener)
       app.setPluginStatus(`Listening for ${consumer.status().devices.length} configured device(s)`)
+    },
+
+    publishIdentity(device, decoded) {
+      const delta = identityDelta(device, decoded, advertisedNames.get(device.mac))
+      const key = JSON.stringify(delta.updates[0].values)
+      if (publishedIdentity.get(device.id) === key) return
+      publishedIdentity.set(device.id, key)
+      app.handleMessage(this.id, delta)
     },
 
     stop() {
@@ -61,10 +83,12 @@ module.exports = function createPlugin(app) {
   }
 }
 
-function secondaryBatteryMacs(detectedModels) {
-  return [...detectedModels]
-    .filter(([, modelId]) => isShuntBatteryMonitor(modelId))
-    .map(([mac]) => mac)
+function detectedDevices(detections, advertisedNames) {
+  return [...detections].map(([mac, detection]) => ({
+    mac,
+    ...detection,
+    advertisedName: advertisedNames.get(mac) || null
+  }))
 }
 
 // Signal K enumerates chargingMode as bulk, acceptance, overcharge, float,
@@ -94,21 +118,65 @@ function chargingMode(state) {
 // no battery-protect, Multi, VE.Bus or DC-meter group, and inventing paths
 // below an unrelated group would misdescribe the device. Their decoded values
 // are visible in the status API and the web application.
+// Each entry names the Signal K electrical group the device is published
+// under.
 const PATH_BUILDERS = {
-  0x01: solarChargerCandidates,
-  0x02: batteryMonitorCandidates,
-  0x03: inverterCandidates,
-  0x04: dcDcConverterCandidates,
-  0x05: smartLithiumCandidates,
-  0x06: inverterRsCandidates,
-  0x0a: lynxCandidates,
-  0x0f: orionCandidates
+  0x01: { group: 'solar', build: solarChargerCandidates },
+  0x02: { group: 'batteries', build: batteryMonitorCandidates },
+  0x03: { group: 'inverters', build: inverterCandidates },
+  0x04: { group: 'chargers', build: dcDcConverterCandidates },
+  0x05: { group: 'batteries', build: smartLithiumCandidates },
+  0x06: { group: 'inverters', build: inverterRsCandidates },
+  0x0a: { group: 'batteries', build: lynxCandidates },
+  0x0f: { group: 'chargers', build: orionCandidates }
 }
 
-function measurementDelta(device, decoded) {
+/**
+ * Signal K group of a device, for example `electrical.batteries`, or null for
+ * a record type that publishes nothing.
+ */
+function deviceGroup(recordType) {
+  const builder = PATH_BUILDERS[recordType]
+  return builder ? `electrical.${builder.group}` : null
+}
+
+/**
+ * Signal K base path of a device, or null for a record type that publishes
+ * nothing.
+ */
+function devicePath(device, recordType) {
+  const group = deviceGroup(recordType)
+  return group ? `${group}.${device.id}` : null
+}
+
+/**
+ * Signal K path of the sensor itself: `sensors.<MAC>`, the MAC written with
+ * dashes, for example `sensors.D5-9E-F7-D6-F6-92`. Keyed by MAC rather than
+ * configured ID or name so it is stable across renames and cannot collide
+ * with another plugin's sensors.
+ */
+function sensorPath(device) {
+  return `sensors.${String(device.mac).trim().toUpperCase().replace(/:/g, '-')}`
+}
+
+/**
+ * Measurement delta for one decoded advertisement.
+ *
+ * `reception` carries the advertisement's RSSI (dBm) and the time it was
+ * decoded. They describe the BLE link, not the measured item, so they are
+ * published below the sensor as `RSSI` and `lastSeen`.
+ */
+function measurementDelta(device, decoded, reception = {}) {
   const values = decoded.measurements
-  const builder = PATH_BUILDERS[decoded.record_type]
-  const candidates = builder ? builder(device.id, values) : []
+  const base = devicePath(device, decoded.record_type)
+  const candidates = base ? PATH_BUILDERS[decoded.record_type].build(base, values) : []
+  if (device.mac) {
+    const sensor = sensorPath(device)
+    candidates.push(
+      [`${sensor}.RSSI`, reception.rssi],
+      [`${sensor}.lastSeen`, reception.lastSeen]
+    )
+  }
 
   // A BMV/SmartShunt can advertise its auxiliary input as a starter battery
   // voltage. When configured, expose that reading as a separate Signal K
@@ -139,8 +207,7 @@ function measurementDelta(device, decoded) {
 // Signal K models solar controllers under electrical.solar, which carries
 // exact leaves for every MPPT advertisement field. electrical.chargers has no
 // power, energy or panel leaf, so the MPPT is published as solar.
-function solarChargerCandidates(id, values) {
-  const base = `electrical.solar.${id}`
+function solarChargerCandidates(base, values) {
   return [
     [`${base}.voltage`, values.battery_voltage_v],
     [`${base}.current`, values.battery_charging_current_a],
@@ -157,8 +224,7 @@ function solarChargerCandidates(id, values) {
 // state. Output side uses the standard charger voltage leaf; the source side
 // is an explicit extension, matching how the Orion XS record is published.
 // chargingMode is schema-defined; chargerError is an explicit extension.
-function dcDcConverterCandidates(id, values) {
-  const base = `electrical.chargers.${id}`
+function dcDcConverterCandidates(base, values) {
   return [
     [`${base}.voltage`, values.output_voltage_v],
     [`${base}.inputVoltage`, values.input_voltage_v],
@@ -172,8 +238,7 @@ function dcDcConverterCandidates(id, values) {
 // joules and charge in coulombs, so the advertised percentage and amp-hours
 // are converted. Consumed Ah is negative by specification, and Signal K's
 // dischargeSinceFull is a positive quantity, hence the sign flip.
-function batteryMonitorCandidates(id, values) {
-  const base = `electrical.batteries.${id}`
+function batteryMonitorCandidates(base, values) {
   return [
     [`${base}.voltage`, values.battery_voltage_v],
     [`${base}.current`, values.battery_current_a],
@@ -193,8 +258,7 @@ function batteryMonitorCandidates(id, values) {
 
 // SmartLithium reports per-cell voltages, which Signal K does not model, so
 // they stay in the status API. Pack voltage and temperature are published.
-function smartLithiumCandidates(id, values) {
-  const base = `electrical.batteries.${id}`
+function smartLithiumCandidates(base, values) {
   return [
     [`${base}.voltage`, values.battery_voltage_v],
     [`${base}.temperature`, values.temperature_c == null
@@ -202,8 +266,7 @@ function smartLithiumCandidates(id, values) {
   ]
 }
 
-function inverterCandidates(id, values) {
-  const base = `electrical.inverters.${id}`
+function inverterCandidates(base, values) {
   return [
     [`${base}.dc.voltage`, values.battery_voltage_v],
     [`${base}.ac.lineNeutralVoltage`, values.ac_voltage_v],
@@ -212,8 +275,7 @@ function inverterCandidates(id, values) {
   ]
 }
 
-function inverterRsCandidates(id, values) {
-  const base = `electrical.inverters.${id}`
+function inverterRsCandidates(base, values) {
   return [
     [`${base}.dc.voltage`, values.battery_voltage_v],
     [`${base}.dc.current`, values.battery_current_a],
@@ -221,8 +283,7 @@ function inverterRsCandidates(id, values) {
   ]
 }
 
-function lynxCandidates(id, values) {
-  const base = `electrical.batteries.${id}`
+function lynxCandidates(base, values) {
   return [
     [`${base}.voltage`, values.battery_voltage_v],
     [`${base}.current`, values.battery_current_a],
@@ -233,11 +294,10 @@ function lynxCandidates(id, values) {
   ]
 }
 
-function orionCandidates(id, values) {
-  // Signal K has no DC/DC converter group. Model the Orion as the charger it
-  // functionally is. voltage/current are standard charger output qualities;
-  // inputVoltage/inputCurrent are explicit extensions for the source side.
-  const base = `electrical.chargers.${id}`
+// Signal K has no DC/DC converter group. Model the Orion as the charger it
+// functionally is. voltage/current are standard charger output qualities;
+// inputVoltage/inputCurrent are explicit extensions for the source side.
+function orionCandidates(base, values) {
   return [
     [`${base}.voltage`, values.output_voltage_v],
     [`${base}.current`, values.output_current_a],
@@ -249,4 +309,58 @@ function orionCandidates(id, values) {
   ]
 }
 
+const VICTRON_VENDOR = 'Victron Energy'
+
+/**
+ * Identity delta for a device.
+ *
+ * The sensor, `sensors.<MAC>`, carries what the Victron device is: `name`
+ * (the configured display name), `sensorType` (the model named from the
+ * advertised product ID, or the hex ID when the model is not in the table),
+ * `vendor`, and `advertisedName` when the device broadcasts one. It also
+ * links to the item its readings are published under: `dataType` (the
+ * group, for example `electrical.batteries`) and `instance` (the configured
+ * device ID), so `electrical.batteries.2` is `<dataType>.<instance>`.
+ *
+ * The measured item, `electrical.<group>.<id>`, gets only its `name`: a
+ * battery watched by a Smart Battery Sense or SmartShunt is not itself a
+ * Victron product, so no manufacturer is claimed for it.
+ */
+function identityDelta(device, decoded, advertisedName) {
+  const sensor = sensorPath(device)
+  const group = deviceGroup(decoded.record_type)
+  const base = devicePath(device, decoded.record_type)
+  const modelId = `0x${decoded.model_id.toString(16).toUpperCase().padStart(4, '0')}`
+  const name = device.name || device.id
+  const values = [
+    [`${sensor}.name`, name],
+    [`${sensor}.sensorType`, decoded.model_name || modelId],
+    [`${sensor}.vendor`, VICTRON_VENDOR],
+    [`${sensor}.advertisedName`, advertisedName],
+    ...(base ? [
+      [`${sensor}.dataType`, group],
+      [`${sensor}.instance`, String(device.id)],
+      [`${base}.name`, name]
+    ] : [])
+  ]
+  return {
+    updates: [{
+      source: { label: 'Victron BLE', src: device.id },
+      timestamp: new Date().toISOString(),
+      values: values
+        .filter(([, value]) => value != null)
+        .map(([path, value]) => ({ path, value })),
+      meta: [
+        { path: `${sensor}.RSSI`, value: { description: 'Signal strength of the last decoded BLE advertisement, in dBm' } },
+        { path: `${sensor}.lastSeen`, value: { description: 'Time the last BLE advertisement was decoded (ISO 8601)' } },
+        { path: `${sensor}.advertisedName`, value: { description: 'Local name the device advertises over BLE' } },
+        { path: `${sensor}.dataType`, value: { description: 'Signal K group the sensor readings are published under' } },
+        { path: `${sensor}.instance`, value: { description: 'Instance within dataType the sensor readings are published under' } }
+      ]
+    }]
+  }
+}
+
+module.exports.identityDelta = identityDelta
+module.exports.sensorPath = sensorPath
 module.exports.measurementDelta = measurementDelta

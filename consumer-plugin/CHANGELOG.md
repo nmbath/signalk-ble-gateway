@@ -11,6 +11,13 @@
 - Escape values placed in the web application's markup.
 - Show the Secondary battery ID option in the configuration form only on
   devices detected as a BMV or SmartShunt, instead of on every device.
+- Show on each device row of the configuration page what was detected: the
+  model, advertised name, RSSI and when it was last heard.
+- Publish each device as a Signal K sensor, `sensors.<MAC>`, with `name`,
+  `sensorType` (the model), `vendor`, `advertisedName`, `RSSI` and
+  `lastSeen`, and with `dataType` and `instance` linking it to the item its
+  readings are published under, for example `electrical.batteries` and `2`.
+  The measured item gets its configured `name`.
 - Add an optional secondary battery ID for publishing a BMV or SmartShunt
   auxiliary starter-battery voltage on a standard Signal K battery path.
 - Skip manufacturer records that are not Instant Readout (a leading byte other

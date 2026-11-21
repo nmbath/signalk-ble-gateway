@@ -2,27 +2,59 @@
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { buildSchema, macPattern } = require('../lib/config-schema')
+const { buildSchema, detectionSummary, macPattern } = require('../lib/config-schema')
 const { isShuntBatteryMonitor } = require('../lib/victron-models')
 
-test('hides the secondary battery option until a shunt is detected', () => {
+const SHUNT = { mac: 'AA:BB:CC:DD:EE:FF', modelId: 0xa389, rssi: -61, lastSeen: '2026-11-21T14:00:00.000Z' }
+const SENSE = {
+  mac: 'D5:9E:F7:D6:F6:92', modelId: 0xa3a5, advertisedName: 'Victron Energy BV',
+  rssi: -74, lastSeen: '2026-11-21T14:00:57.000Z'
+}
+const NOW = Date.parse('2026-11-21T14:01:00.000Z')
+
+function branchFor(schema, mac) {
+  return schema.properties.devices.items.dependencies.mac.oneOf
+    .find(branch => new RegExp(branch.properties.mac.pattern ?? '(?!)', 'u').test(mac))
+}
+
+test('says a device is not detected until something has been decoded', () => {
   const item = buildSchema().properties.devices.items
+  assert.match(item.description, /Not detected yet/)
   assert.equal(item.properties.secondaryBattery, undefined)
   assert.equal(item.dependencies, undefined)
 })
 
-test('offers the secondary battery option only on detected shunt MACs', () => {
-  const item = buildSchema(['AA:BB:CC:DD:EE:FF']).properties.devices.items
-  const [shunt, other] = item.dependencies.mac.oneOf
-  const pattern = new RegExp(shunt.properties.mac.pattern)
+test('describes each detected device on its own row', () => {
+  const schema = buildSchema([SHUNT, SENSE], NOW)
+  assert.equal(
+    branchFor(schema, ' d5:9e:f7:d6:f6:92 ').description,
+    'Detected: Smart Battery Sense (Rev2) (0xA3A5) · advertised as "Victron Energy BV" · RSSI -74 dBm · last seen 3 s ago'
+  )
+  assert.match(branchFor(schema, SHUNT.mac).description, /^Detected: SmartShunt 500A\/50mV \(0xA389\) · RSSI -61 dBm · last seen 1 min ago$/)
+})
 
-  assert.equal(shunt.properties.secondaryBattery.type, 'string')
-  assert.deepEqual(other.properties.mac.not, shunt.properties.mac)
-  assert.equal(other.properties.secondaryBattery, undefined)
-  assert.equal(pattern.test('AA:BB:CC:DD:EE:FF'), true)
-  assert.equal(pattern.test(' aa:bb:cc:dd:ee:ff '), true)
-  assert.equal(pattern.test('AA:BB:CC:DD:EE:00'), false)
-  assert.equal(pattern.test('AA:BB:CC:DD:EE:FF:00'), false)
+test('offers the secondary battery option only on detected shunt rows', () => {
+  const schema = buildSchema([SHUNT, SENSE], NOW)
+  assert.equal(branchFor(schema, SHUNT.mac).properties.secondaryBattery.type, 'string')
+  assert.equal(branchFor(schema, SENSE.mac).properties.secondaryBattery, undefined)
+})
+
+test('keeps undetected rows marked as not detected', () => {
+  const branches = buildSchema([SHUNT, SENSE], NOW).properties.devices.items.dependencies.mac.oneOf
+  const notDetected = branches.at(-1)
+  const anyDetected = new RegExp(notDetected.properties.mac.not.pattern, 'u')
+  assert.match(notDetected.description, /Not detected yet/)
+  assert.equal(notDetected.properties.secondaryBattery, undefined)
+  assert.equal(anyDetected.test(SHUNT.mac), true)
+  assert.equal(anyDetected.test(SENSE.mac.toLowerCase()), true)
+  assert.equal(anyDetected.test('11:22:33:44:55:66'), false)
+})
+
+test('names an unknown model by its ID and rounds older sightings', () => {
+  assert.equal(
+    detectionSummary({ modelId: 0xfffe, lastSeen: '2026-11-21T11:00:00.000Z' }, NOW),
+    'Detected: Unknown Victron model (0xFFFE) · last seen 3 h ago'
+  )
 })
 
 // The admin form (RJSF with AJV) compiles patterns with the Unicode flag.

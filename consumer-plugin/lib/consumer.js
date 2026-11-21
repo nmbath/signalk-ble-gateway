@@ -22,13 +22,24 @@ function publicDevice(device, state) {
 }
 
 class VictronConsumer {
-  constructor(devices = [], now = Date.now, { onlineTimeoutMs = DEFAULT_ONLINE_TIMEOUT_MS } = {}) {
+  /**
+   * @param {object[]} devices configured devices
+   * @param {() => number} now clock
+   * @param {object} options
+   * @param {number} options.onlineTimeoutMs how long a reading keeps a device online
+   * @param {Map<string, string>} options.advertisedNames last advertised name
+   *   per normalized MAC; pass a map to keep names across consumer instances
+   */
+  constructor(devices = [], now = Date.now, {
+    onlineTimeoutMs = DEFAULT_ONLINE_TIMEOUT_MS,
+    advertisedNames = new Map()
+  } = {}) {
     this.now = now
     this.onlineTimeoutMs = onlineTimeoutMs
     this.devices = devices.map(device => ({ ...device, mac: normalizeMac(device.mac) }))
     this.states = new Map()
     this.decodedAt = new Map()
-    this.advertisedNames = new Map()
+    this.advertisedNames = advertisedNames
     this.received = 0
     this.decoded = 0
     this.ignored = 0
@@ -48,7 +59,7 @@ class VictronConsumer {
     // not the ones carrying Instant Readout data, so the last name seen is
     // kept for diagnostics rather than taken from the current packet.
     const advertisedName = typeof advertisement.name === 'string' ? advertisement.name.trim() : ''
-    if (advertisedName) this.advertisedNames.set(device.id, advertisedName)
+    if (advertisedName) this.advertisedNames.set(mac, advertisedName)
 
     try {
       const decoded = decodeEnvelope(advertisement, device.advertisementKey)
@@ -108,7 +119,7 @@ class VictronConsumer {
           decode_error: null,
           decoded: null
         }),
-        advertised_name: this.advertisedNames.get(device.id) || null
+        advertised_name: this.advertisedNames.get(device.mac) || null
       }))
     }
   }
