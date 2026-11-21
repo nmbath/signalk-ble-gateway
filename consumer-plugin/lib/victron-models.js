@@ -13,7 +13,8 @@
  * (sensor_classes/Victron/VictronConstants.js, ISC licence), names only.
  * Battery monitor entries cross-checked against the vecan-dbus extraction in
  * keshavdv/victron-ble and the esphome-victron_ble product enum; 0xA3A5
- * (Smart Battery Sense Rev2) confirmed against a real unit.
+ * (Smart Battery Sense Rev2) confirmed against a real unit. 0xA3E4 (Lynx
+ * Smart BMS NG 500A) is missing from that map and was added from a real unit.
  */
 const MODEL_NAMES = Object.freeze({
   0x0001: 'VPN',
@@ -656,6 +657,7 @@ const MODEL_NAMES = Object.freeze({
   0xA3D2: 'Orion Smart Orion 24V/12V-30A Buck-Boost Converter',
   0xA3D3: 'Orion Smart Orion 24V/24V-17A Buck-Boost Converter',
   0xA3E0: 'Smart BMS CL 12-100',
+  0xA3E4: 'Lynx Smart BMS NG 500A',
   0xA3E5: 'Lynx Smart BMS 500',
   0xA3E6: 'Lynx Smart BMS 1000',
   0xA3E8: 'Smart BMS 12-200',
