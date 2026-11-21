@@ -260,14 +260,37 @@ function batteryMonitorCandidates(base, values) {
   ]
 }
 
-// SmartLithium reports per-cell voltages, which Signal K does not model, so
-// they stay in the status API. Pack voltage and temperature are published.
+// SmartLithium reports pack voltage, temperature, per-cell voltages and the
+// balancer status. Signal K defines no cell or balancer leaves; they use the
+// paths bt-sensors-plugin-sk publishes for the same battery
+// (cell<N>.voltage, balancerStatus), so the two plugins agree. Cells the
+// battery does not have (a 12.8 V pack has 4 of 8) are reported unavailable
+// and left out. A cell beyond the measurable range (below 2.61 V or above
+// 3.85 V) is published at that bound.
 function smartLithiumCandidates(base, values) {
+  const cells = (values.cell_voltages_v || []).map((cell, index) =>
+    [`${base}.cell${index + 1}.voltage`, cell ? cell.voltage_v : null])
   return [
-    [`${base}.voltage`, values.battery_voltage_v],
+    [`${base}.voltage`, values.battery_voltage_v == null
+      ? null : Math.round(values.battery_voltage_v * 100) / 100],
     [`${base}.temperature`, values.temperature_c == null
-      ? null : values.temperature_c + 273.15]
+      ? null : values.temperature_c + 273.15],
+    ...cells,
+    [`${base}.balancerStatus`, values.balancer_status_name]
   ]
+}
+
+// Metadata for the SmartLithium leaves Signal K does not define, sent with
+// the device's identity
+function smartLithiumMeta(base, values) {
+  const cells = (values.cell_voltages_v || []).flatMap((cell, index) => cell ? [{
+    path: `${base}.cell${index + 1}.voltage`,
+    value: { units: 'V', description: `Voltage of cell ${index + 1}` }
+  }] : [])
+  return [...cells, {
+    path: `${base}.balancerStatus`,
+    value: { description: 'Cell balancer status: balanced, balancing, imbalance or unknown' }
+  }]
 }
 
 function inverterCandidates(base, values) {
@@ -359,7 +382,9 @@ function identityDelta(device, decoded, advertisedName) {
         { path: `${sensor}.lastSeen`, value: { description: 'Time the last BLE advertisement was decoded (ISO 8601)' } },
         { path: `${sensor}.advertisedName`, value: { description: 'Local name the device advertises over BLE' } },
         { path: `${sensor}.dataType`, value: { description: 'Signal K group the sensor readings are published under' } },
-        { path: `${sensor}.instance`, value: { description: 'Instance within dataType the sensor readings are published under' } }
+        { path: `${sensor}.instance`, value: { description: 'Instance within dataType the sensor readings are published under' } },
+        ...(base && decoded.record_type === 0x05 && decoded.measurements
+          ? smartLithiumMeta(base, decoded.measurements) : [])
       ]
     }]
   }

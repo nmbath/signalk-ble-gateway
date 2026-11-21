@@ -229,7 +229,9 @@ device. An auxiliary voltage is then published as
 `electrical.batteries.<secondary-id>.voltage`; temperature and mid-point modes
 never use this mapping. Leave the option empty to retain the default behavior.
 The device settings offer the option only for a device identified as a BMV
-or SmartShunt from its advertised model ID, or one that already has a value.
+or SmartShunt from its advertised model ID that sends battery monitor records
+(a shunt set up as a DC energy meter does not), or one that already has a
+value.
 The DC energy meter has no mid-point reading, so that selector is rejected for
 it rather than producing a value the record does not carry.
 
@@ -246,6 +248,16 @@ null                                  not available
 
 An unavailable cell keeps its position in the list, so cell numbering stays
 meaningful when one reading is missing.
+
+Besides pack `voltage` and `temperature`, a SmartLithium battery publishes
+each available cell as `electrical.batteries.<id>.cell<N>.voltage` (V; a
+bound is published at its threshold) and the balancer as
+`electrical.batteries.<id>.balancerStatus` (`balanced`, `balancing`,
+`imbalance` or `unknown`). Signal K defines neither leaf, so these follow the
+paths bt-sensors-plugin-sk uses for the same battery, with units and
+descriptions sent as metadata. The record carries no current or state of
+charge; those come from the battery monitor or BMS. The BMS and error flags
+stay in the status API.
 
 Records `0x07` and `0x08` are not implemented. The specification marks both
 layouts as still to be determined and subject to change, so decoding them

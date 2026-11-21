@@ -403,6 +403,22 @@ function decodeCellVoltage(raw) {
 }
 
 /**
+ * VE_REG_BALANCER_STATUS, as listed with the SmartLithium record. 0x0F is the
+ * specified NA value.
+ */
+const BALANCER_STATUSES = {
+  0: 'unknown',
+  1: 'balanced',
+  2: 'balancing',
+  3: 'imbalance'
+}
+
+function balancerStatusName(value) {
+  if (value === null || value === 0x0f) return null
+  return BALANCER_STATUSES[value] || `unknown_${value}`
+}
+
+/**
  * Decode the SmartLithium record (type 0x05).
  *
  * spec bit 32  -> 0    BMS flags         32 bits
@@ -432,6 +448,7 @@ function decodeSmartLithium(data) {
     cell_voltages_v: cells,
     battery_voltage_v: valueUnless(voltage, 0x0fff, value => value * 0.01),
     balancer_status: valueUnless(balancer, 0x0f),
+    balancer_status_name: balancerStatusName(balancer),
     temperature_c: valueUnless(temperature, 0x7f, value => value - 40)
   }
 }

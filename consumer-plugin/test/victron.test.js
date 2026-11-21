@@ -433,6 +433,7 @@ test('decodes the documented SmartLithium layout', () => {
   assert.deepEqual(decoded.cell_voltages_v[0], { bound: 'exact', voltage_v: 3.25 })
   assert.equal(Math.round(decoded.battery_voltage_v * 100) / 100, 13.2)
   assert.equal(decoded.balancer_status, 2)
+  assert.equal(decoded.balancer_status_name, 'balancing')
   assert.equal(decoded.temperature_c, 25)
 })
 

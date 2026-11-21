@@ -196,6 +196,34 @@ test('publishes Lynx measurements on battery paths', () => {
   ])
 })
 
+test('publishes SmartLithium cells and balancer status like bt-sensors', () => {
+  const cell = voltage => ({ bound: 'exact', voltage_v: voltage })
+  const measurements = {
+    battery_voltage_v: 1312 * 0.01,
+    temperature_c: 15,
+    cell_voltages_v: [cell(3.28), cell(3.29), { bound: 'below', voltage_v: 2.61 }, cell(3.27), null, null, null, null],
+    balancer_status: 1,
+    balancer_status_name: 'balanced'
+  }
+  const delta = measurementDelta({ id: '10' }, { record_type: 0x05, measurements })
+  assert.deepEqual(delta.updates[0].values, [
+    { path: 'electrical.batteries.10.voltage', value: 13.12 },
+    { path: 'electrical.batteries.10.temperature', value: 288.15 },
+    { path: 'electrical.batteries.10.cell1.voltage', value: 3.28 },
+    { path: 'electrical.batteries.10.cell2.voltage', value: 3.29 },
+    { path: 'electrical.batteries.10.cell3.voltage', value: 2.61 },
+    { path: 'electrical.batteries.10.cell4.voltage', value: 3.27 },
+    { path: 'electrical.batteries.10.balancerStatus', value: 'balanced' }
+  ])
+
+  const identity = identityDelta({ id: '10', name: '12v Bat 1', mac: 'C6:88:36:CE:9C:99' },
+    { record_type: 0x05, model_id: 0xa3e9, model_name: 'Smart Lithium', measurements }, null)
+  const meta = Object.fromEntries(identity.updates[0].meta.map(({ path, value }) => [path, value]))
+  assert.deepEqual(meta['electrical.batteries.10.cell4.voltage'], { units: 'V', description: 'Voltage of cell 4' })
+  assert.equal('electrical.batteries.10.cell5.voltage' in meta, false)
+  assert.match(meta['electrical.batteries.10.balancerStatus'].description, /balancing/)
+})
+
 test('publishes Orion output and input measurements on charger paths', () => {
   const delta = measurementDelta({ id: 'orionSt' }, {
     record_type: 0x0f,
