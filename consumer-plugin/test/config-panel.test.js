@@ -220,3 +220,8 @@ test('warns that an advertised name filling a whole advertisement may be shorten
   assert.match(render(draft), /may have shortened its advertised name/)
   assert.equal(render({ ...draft, name: '24v Lithium House Bank NG (400Ah)' }).includes('may have shortened'), false)
 })
+
+test('starts a plugin that is not running by saving its configuration', () => {
+  assert.deepEqual(panel.startConfiguration(undefined), { devices: [] })
+  assert.deepEqual(panel.startConfiguration(CONFIGURATION), { devices: CONFIGURATION.devices })
+})

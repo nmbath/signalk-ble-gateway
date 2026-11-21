@@ -275,6 +275,16 @@
     }))
   }
 
+  /**
+   * The configuration to save to start a plugin that is not running. A plugin
+   * never configured has no Enabled switch in the admin UI, only "Save
+   * configuration to enable this plugin", and it hears nothing to add until it
+   * runs; saving its configuration as it is (no devices yet) enables it.
+   */
+  function startConfiguration(configuration) {
+    return withDevices(configuration, configuredDevices(configuration))
+  }
+
   function withDevices(configuration, devices) {
     var next = Object.assign({}, configuration || {}, { devices: devices })
     delete next.discovered
@@ -494,6 +504,11 @@
         setMessage((draft.isNew ? 'Added ' : 'Saved ') + draft.name.trim())
         close()
       }
+      function start() {
+        props.save(startConfiguration(configuration))
+        setRunning(true)
+        setMessage('Saved. The plugin starts and lists the devices it hears within a few seconds.')
+      }
       function remove() {
         if (!root.confirm || root.confirm('Remove ' + (draft.name || draft.mac) + ' from the configuration?')) {
           props.save(removeDevice(configuration, draft.mac))
@@ -526,8 +541,12 @@
             errorState[0] ? h('div', { className: 'alert alert-warning py-2' },
               'Could not load the devices heard (' + errorState[0] + '). Is the plugin enabled?') : null,
             !errorState[0] && !runningState[0] ? h('div', { className: 'alert alert-warning py-2' },
-              'The plugin is not running, so it is not listening for Victron devices. ' +
-              'Enable it and submit; the devices it hears then appear here.') : null,
+              h('p', { className: 'mb-2' },
+                'The plugin is not running, so it is not listening for Victron devices. ' +
+                'Start it to list the devices it hears, then click one to add it. ' +
+                'If the plugin is switched off above, turn on Enabled instead.'),
+              h('button', { type: 'button', className: 'btn btn-primary btn-sm', onClick: start },
+                'Start listening')) : null,
             rows.length === 0 && serverRows !== null
               ? h('p', { className: 'text-body-secondary mb-0' },
                 runningState[0]
@@ -603,6 +622,7 @@
     mayBeShortened: mayBeShortened,
     nameOf: nameOf,
     removeDevice: removeDevice,
+    startConfiguration: startConfiguration,
     rssiColor: rssiColor,
     statusOf: statusOf,
     tabsFor: tabsFor,
