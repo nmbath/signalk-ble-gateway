@@ -5,6 +5,7 @@ const { isShuntBatteryMonitor, modelName } = require('./victron-models')
 
 // Devices not heard for this long are left out unless they are configured.
 const HEARD_WINDOW_MS = 15 * 60 * 1000
+const BATTERY_MONITOR_RECORD = 0x02
 
 function normalizeMac(value) {
   return String(value || '').trim().toUpperCase()
@@ -68,7 +69,9 @@ function heardRow(device) {
     advertisedName: device.advertisedName || null,
     rssi: typeof device.rssi === 'number' ? device.rssi : null,
     lastSeen: device.lastSeen,
-    supportsSecondaryBattery: isShuntBatteryMonitor(device.modelId),
+    // Only the battery monitor record carries the auxiliary (starter) voltage;
+    // a shunt set up as a DC energy meter sends the DC meter record instead.
+    supportsSecondaryBattery: device.recordType === BATTERY_MONITOR_RECORD && isShuntBatteryMonitor(device.modelId),
     configured: false
   }
 }

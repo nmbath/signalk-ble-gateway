@@ -15,6 +15,8 @@
  * keshavdv/victron-ble and the esphome-victron_ble product enum; 0xA3A5
  * (Smart Battery Sense Rev2) confirmed against a real unit. 0xA3E4 (Lynx
  * Smart BMS NG 500A) is missing from that map and was added from a real unit.
+ * 0xC0A3 (SmartShunt 500A/50mV) is also missing and was named from a real
+ * unit (one set up as a DC energy meter).
  */
 const MODEL_NAMES = Object.freeze({
   0x0001: 'VPN',
@@ -783,6 +785,7 @@ const MODEL_NAMES = Object.freeze({
   0xC035: 'SmartShunt IP65 500A/50mV',
   0xC036: 'SmartShunt IP65 1000A/50mV',
   0xC037: 'SmartShunt IP65 2000A/50mV',
+  0xC0A3: 'SmartShunt 500A/50mV',
   0xEBA0: 'Smart Lithium Battery'
 })
 
@@ -799,7 +802,7 @@ function modelName(modelId) {
  * interface entries and the Smart Battery Sense are excluded.
  */
 function isShuntBatteryMonitor(modelId) {
-  return /^(BMV-\d{3}|SmartShunt (IP\d{2} )?\d+A)/.test(modelName(modelId) || '')
+  return /^(BMV-\d{3}|SmartShunt( IP\d{2})?( \d+A|$))/.test(modelName(modelId) || '')
 }
 
 module.exports = { MODEL_NAMES, isShuntBatteryMonitor, modelName }

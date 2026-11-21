@@ -42,6 +42,14 @@ test('joins configuration and decode state, never keys', () => {
   assert.equal(rows.find(row => row.mac === SHUNT.mac).supportsSecondaryBattery, true)
 })
 
+test('offers the secondary battery only for a shunt sending battery monitor records', () => {
+  const dcMeter = { ...SHUNT, mac: 'C0:A3:00:00:00:01', modelId: 0xc0a3, recordType: 0x0d }
+  const [row] = deviceRows({ discovered: [dcMeter] }, NOW)
+  assert.equal(row.modelName, 'SmartShunt 500A/50mV')
+  assert.equal(row.recordName, 'dc_energy_meter')
+  assert.equal(row.supportsSecondaryBattery, false)
+})
+
 test('keeps configured devices that are not heard and drops stale unconfigured ones', () => {
   const rows = deviceRows({
     discovered: [STALE],
