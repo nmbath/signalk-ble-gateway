@@ -29,6 +29,9 @@
   // A device ID becomes one Signal K path segment, e.g. electrical.batteries.<id>
   var ID_PATTERN = /^[A-Za-z0-9_-]+$/
   var LIST_MAX_HEIGHT = '320px'
+  // The longest name one advertisement can carry: 31 bytes, less the 2-byte
+  // AD header. Devices with longer names send them shortened to fit.
+  var ADVERTISED_NAME_MAX_BYTES = 29
   var CONFIGURED_TAB = 'configured'
   // Tabs by kind of device, from the record type it advertises, like the
   // domain tabs of bt-sensors-plugin-sk. Converters holds everything that
@@ -160,8 +163,17 @@
     return index < 0 ? TYPE_TABS.length : index
   }
 
+  /**
+   * The name to list a device by: the name configured for it, which the user
+   * can correct, otherwise the name it advertises.
+   */
   function nameOf(row) {
-    return row.advertisedName || row.displayName || ''
+    return (row.configured && row.displayName) || row.advertisedName || ''
+  }
+
+  /** Whether an advertised name fills a whole advertisement, so may be cut short. */
+  function mayBeShortened(name) {
+    return typeof name === 'string' && new TextEncoder().encode(name).length >= ADVERTISED_NAME_MAX_BYTES
   }
 
   /**
@@ -318,7 +330,12 @@
           h('strong', null, typeLabel(row)),
           h('span', { className: 'text-body-secondary ms-2 font-monospace small' }, row.mac)),
         h('div', { className: 'row g-3' },
-          field(fieldProps({ name: 'name', label: 'Display name', width: 'col-md-4', placeholder: 'e.g. Starter Battery' })),
+          field(fieldProps({
+            name: 'name', label: 'Display name', width: 'col-md-4', placeholder: 'e.g. Starter Battery',
+            help: mayBeShortened(row.advertisedName) && draft.name === row.advertisedName
+              ? 'The device may have shortened its advertised name to fit Bluetooth\'s 29 characters; check it is complete.'
+              : null
+          })),
           field(fieldProps({
             name: 'id', label: 'Device ID', width: 'col-md-2', placeholder: 'e.g. 2',
             help: 'Signal K instance, e.g. electrical.batteries.<ID>'
@@ -360,14 +377,14 @@
         title: row.configured ? 'Click to change this device' : 'Click to add this device',
         onClick: props.onSelect
       },
-      h('td', null, row.advertisedName || '-'),
+      h('td', {
+        title: row.advertisedName && row.advertisedName !== nameOf(row) ? 'Advertised as ' + row.advertisedName : undefined
+      }, nameOf(row) || '-'),
       h('td', null, typeLabel(row)),
       h('td', null, h('code', null, row.mac)),
       h('td', null, row.rssi === null ? '-' : badge(rssiColor(row.rssi), row.rssi + ' dBm')),
       h('td', null, formatAge(row.lastSeen, props.now)),
-      h('td', null, row.configured
-        ? h('span', null, row.displayName || '-', row.deviceId ? h('span', { className: 'text-body-secondary ms-1' }, '(' + row.deviceId + ')') : null)
-        : '-'),
+      h('td', null, row.configured && row.deviceId ? row.deviceId : '-'),
       h('td', null, status ? badge(status.color, status.label) : h('span', { className: 'text-body-secondary' }, 'Not configured')))
     }
 
@@ -378,7 +395,7 @@
       return h('div', { className: 'table-responsive', style: { maxHeight: LIST_MAX_HEIGHT, overflowY: 'auto' } },
         h('table', { className: 'table table-hover table-striped table-sm mb-0' },
           h('thead', { className: 'sticky-top' }, h('tr', null,
-            ['Name', 'Type', 'MAC Address', 'RSSI', 'Last Seen', 'Configured as', 'Status'].map(function (title) {
+            ['Name', 'Type', 'MAC Address', 'RSSI', 'Last Seen', 'Device ID', 'Status'].map(function (title) {
               return h('th', { key: title }, title)
             }))),
           h('tbody', null, props.rows.map(function (row) {
@@ -575,6 +592,8 @@
     draftFor: draftFor,
     formatAge: formatAge,
     mergeRows: mergeRows,
+    mayBeShortened: mayBeShortened,
+    nameOf: nameOf,
     removeDevice: removeDevice,
     rssiColor: rssiColor,
     statusOf: statusOf,

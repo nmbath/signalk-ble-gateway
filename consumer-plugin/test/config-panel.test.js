@@ -189,3 +189,34 @@ test('renders the settings of a device, with secondary battery only for a shunt'
   assert.match(sense, />Remove</)
   assert.equal(sense.includes('is-invalid'), false)
 })
+
+test('lists configured devices by the name the user gave them', () => {
+  const shortened = { ...SENSE_ROW, advertisedName: '24v Lithium House Bank NG (40' }
+  const configuration = { devices: [{ id: 'house', name: '24v Lithium House Bank NG (400Ah)', mac: SENSE_ROW.mac }] }
+  const [row] = panel.mergeRows([shortened], configuration)
+  assert.equal(panel.nameOf(row), '24v Lithium House Bank NG (400Ah)')
+  assert.equal(panel.nameOf(panel.mergeRows([shortened], {})[0]), '24v Lithium House Bank NG (40')
+
+  const { DeviceTable } = panel.createPanel(React).parts
+  const html = renderToStaticMarkup(React.createElement(DeviceTable, {
+    rows: [row], now: NOW, selected: null, onSelect: () => {}, empty: ''
+  }))
+  assert.match(html, /<td title="Advertised as 24v Lithium House Bank NG \(40">24v Lithium House Bank NG \(400Ah\)<\/td>/)
+  assert.match(html, /<td>house<\/td>/)
+})
+
+test('warns that an advertised name filling a whole advertisement may be shortened', () => {
+  assert.equal(panel.mayBeShortened('24v Lithium House Bank NG (40'), true)
+  assert.equal(panel.mayBeShortened('12v House SBP'), false)
+  assert.equal(panel.mayBeShortened(null), false)
+
+  const { Editor } = panel.createPanel(React).parts
+  const row = { ...SENSE_ROW, advertisedName: '24v Lithium House Bank NG (40' }
+  const render = draft => renderToStaticMarkup(React.createElement(Editor, {
+    row, draft, setDraft: () => {}, configuration: {}, showErrors: false,
+    onSave: () => {}, onRemove: () => {}, onCancel: () => {}
+  }))
+  const draft = panel.draftFor(row, {})
+  assert.match(render(draft), /may have shortened its advertised name/)
+  assert.equal(render({ ...draft, name: '24v Lithium House Bank NG (400Ah)' }).includes('may have shortened'), false)
+})

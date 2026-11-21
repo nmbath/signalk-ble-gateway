@@ -168,8 +168,8 @@ two areas:
   by type (**Batteries**; **Converters** for solar, DC-DC and AC chargers,
   inverters and inverter/chargers; **Smart BatteryProtect**; **DC Energy
   Meters**; **Other**).
-  Each row shows the advertised name, type, MAC address, RSSI, when it was
-  last heard, what it is configured as and its status (Online, Waiting,
+  Each row shows the name, type, MAC address, RSSI, when it was last heard,
+  the device ID and its status (Online, Waiting,
   Wrong key, Not heard, Disabled). The list refreshes every 5 seconds and
   is ordered by type, then name, so rows stay put as signal strength changes.
 - **Device settings**: click a device to add it, or to change it if it is
@@ -179,6 +179,12 @@ two areas:
   a device ID, the Signal K instance such as `2` in
   `electrical.batteries.2`. A BMV or SmartShunt also offers the secondary
   battery ID. **Add device** or **Save** stores it, **Remove** deletes it.
+
+  The Name column shows a configured device's display name, otherwise the
+  name it advertises. One advertisement carries at most 29 characters of
+  name, so devices with longer names send them shortened, e.g.
+  `24v Lithium House Bank NG (40`; correct the display name to the full one.
+  The advertised name stays available as `sensors.<MAC>.advertisedName`.
 
 Devices are identified without their key: the product ID and record type
 travel in the unencrypted Instant Readout header, and the advertised name in
