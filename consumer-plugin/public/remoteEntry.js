@@ -31,12 +31,19 @@
   var LIST_MAX_HEIGHT = '320px'
   var CONFIGURED_TAB = 'configured'
   // Tabs by kind of device, from the record type it advertises, like the
-  // domain tabs of bt-sensors-plugin-sk
+  // domain tabs of bt-sensors-plugin-sk. Converters holds everything that
+  // turns one source of power into another: solar chargers, DC-DC chargers
+  // (Orion TR, Orion XS), AC battery chargers, inverters and inverter/chargers.
   var TYPE_TABS = [
     { key: 'batteries', title: 'Batteries', records: ['battery_monitor', 'smart_lithium', 'lynx_smart_bms'] },
-    { key: 'solar', title: 'Solar', records: ['solar_charger'] },
-    { key: 'chargers', title: 'Chargers', records: ['dc_dc_converter', 'orion_xs', 'ac_charger'] },
-    { key: 'inverters', title: 'Inverters', records: ['inverter', 'inverter_rs', 'multi_rs', 've_bus'] },
+    {
+      key: 'converters',
+      title: 'Converters',
+      records: ['solar_charger', 'dc_dc_converter', 'orion_xs', 'ac_charger',
+        'inverter', 'inverter_rs', 'multi_rs', 've_bus']
+    },
+    { key: 'battery-protect', title: 'Smart BatteryProtect', records: ['battery_protect'] },
+    { key: 'dc-energy-meters', title: 'DC Energy Meters', records: ['dc_energy_meter'] },
     { key: 'other', title: 'Other', records: null }
   ]
 

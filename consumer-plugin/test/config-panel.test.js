@@ -116,9 +116,12 @@ test('lists configured devices from the configuration being edited', () => {
 test('groups devices into Configured and type tabs', () => {
   const rows = panel.mergeRows([SENSE_ROW, SHUNT_ROW, MPPT_ROW], CONFIGURATION)
   assert.deepEqual(panel.tabsFor(rows).map(tab => [tab.key, tab.rows.length]),
-    [['configured', 1], ['batteries', 2], ['solar', 1]])
-  assert.equal(panel.typeTabOf({ recordName: 'orion_xs' }), 'chargers')
-  assert.equal(panel.typeTabOf({ recordName: 'dc_energy_meter' }), 'other')
+    [['configured', 1], ['batteries', 2], ['converters', 1]])
+  assert.deepEqual(['orion_xs', 'dc_dc_converter', 'ac_charger', 've_bus', 'multi_rs'].map(recordName =>
+    panel.typeTabOf({ recordName })), Array(5).fill('converters'))
+  assert.equal(panel.typeTabOf({ recordName: 'battery_protect' }), 'battery-protect')
+  assert.equal(panel.typeTabOf({ recordName: 'dc_energy_meter' }), 'dc-energy-meters')
+  assert.equal(panel.typeTabOf({ recordName: 'gx_device' }), 'other')
   assert.equal(panel.typeTabOf({ recordName: null }), null)
 })
 

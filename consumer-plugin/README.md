@@ -165,7 +165,9 @@ two areas:
 
 - **Victron devices** lists every Victron device heard in the last 15
   minutes, plus every configured device, in tabs: **Configured** first, then
-  by type (**Batteries**, **Solar**, **Chargers**, **Inverters**, **Other**).
+  by type (**Batteries**; **Converters** for solar, DC-DC and AC chargers,
+  inverters and inverter/chargers; **Smart BatteryProtect**; **DC Energy
+  Meters**; **Other**).
   Each row shows the advertised name, type, MAC address, RSSI, when it was
   last heard, what it is configured as and its status (Online, Waiting,
   Wrong key, Not heard, Disabled). The list refreshes every 5 seconds.
