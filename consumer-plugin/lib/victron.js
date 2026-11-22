@@ -199,6 +199,7 @@ function decodeSolarCharger(data) {
 
   return {
     charge_state: deviceState(chargeState),
+    charge_state_number: valueUnless(chargeState, 0xff),
     charger_error: chargerErrorName(chargerError),
     battery_voltage_v: valueUnless(batteryVoltage, 0x7fff, value => value * 0.01),
     battery_charging_current_a: valueUnless(batteryCurrent, 0x7fff, value => value * 0.1),

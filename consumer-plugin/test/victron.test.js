@@ -170,6 +170,7 @@ test('decodes the documented Solar Charger layout', () => {
 
   assert.deepEqual(decodeSolarCharger(data), {
     charge_state: 'float',
+    charge_state_number: 5,
     charger_error: 'no_error',
     battery_voltage_v: 13.48,
     battery_charging_current_a: 3.6,

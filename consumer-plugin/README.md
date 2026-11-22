@@ -85,10 +85,15 @@ electrical.solar.<id>.current
 electrical.solar.<id>.panelPower
 electrical.solar.<id>.yieldToday
 electrical.solar.<id>.loadCurrent
+electrical.solar.<id>.controllerMode         state, e.g. bulk, float, not charging
+electrical.solar.<id>.controllerModeNumber   state number
 ```
 
 Yield is published in joules, the Signal K unit for `yieldToday`. The
-advertisement carries 0.01 kWh units, which the consumer converts.
+advertisement carries 0.01 kWh units, which the consumer converts. The state
+is published as signalk-venus-plugin publishes it from a GX device, with the
+plugin's state names; a state it does not name is sent as its number in
+text. The charger error stays in the status API.
 
 Orion Smart DC-DC converters advertise record `0x04`, which carries only
 voltages:
@@ -107,9 +112,6 @@ Operating state and charger error are published as text alongside the
 measurements:
 
 ```text
-electrical.solar.<id>.chargingMode
-electrical.solar.<id>.chargerState
-electrical.solar.<id>.chargerError
 electrical.chargers.<id>.chargingMode
 electrical.chargers.<id>.chargerState
 electrical.chargers.<id>.chargerError

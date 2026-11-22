@@ -117,6 +117,28 @@ function chargingMode(state) {
   return SIGNALK_CHARGING_MODES[state] || 'other'
 }
 
+// Device state names as signalk-venus-plugin gives them, per Venus service.
+// A state without a name is published as its number in text, as the plugin
+// does.
+const VENUS_STATES = {
+  solarcharger: {
+    0: 'not charging',
+    2: 'other',
+    3: 'bulk',
+    4: 'absorption',
+    5: 'float',
+    6: 'other',
+    7: 'equalize',
+    245: 'wake up',
+    252: 'external control'
+  }
+}
+
+function venusState(service, state) {
+  if (state == null) return null
+  return VENUS_STATES[service][state] || String(state)
+}
+
 // A record type without an entry here publishes nothing. Falling back to a
 // path builder written for a different device would emit measurements under
 // paths that do not describe the device that sent them.
@@ -282,8 +304,10 @@ function measurementDelta(device, decoded, reception = {}) {
 }
 
 // Signal K models solar controllers under electrical.solar, which carries
-// exact leaves for every MPPT advertisement field. electrical.chargers has no
-// power, energy or panel leaf, so the MPPT is published as solar.
+// exact leaves for every MPPT advertisement field. The state is published as
+// signalk-venus-plugin publishes it: controllerMode with the plugin's state
+// name, and controllerModeNumber. The error code, which the plugin raises as
+// a notification, stays in the status API.
 function solarChargerCandidates(base, values) {
   return [
     [`${base}.voltage`, values.battery_voltage_v],
@@ -291,9 +315,8 @@ function solarChargerCandidates(base, values) {
     [`${base}.panelPower`, values.solar_power_w],
     [`${base}.yieldToday`, values.yield_today_j],
     [`${base}.loadCurrent`, values.external_device_load_a],
-    [`${base}.chargingMode`, chargingMode(values.charge_state)],
-    [`${base}.chargerState`, values.charge_state],
-    [`${base}.chargerError`, values.charger_error]
+    [`${base}.controllerMode`, venusState('solarcharger', values.charge_state_number)],
+    [`${base}.controllerModeNumber`, values.charge_state_number]
   ]
 }
 

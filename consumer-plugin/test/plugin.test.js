@@ -347,6 +347,7 @@ test('publishes Solar Charger measurements on solar paths', () => {
       yield_today_j: 3348000,
       external_device_load_a: 2,
       charge_state: 'float',
+      charge_state_number: 5,
       charger_error: 'no_error'
     }
   })
@@ -357,18 +358,29 @@ test('publishes Solar Charger measurements on solar paths', () => {
     { path: 'electrical.solar.mppt.panelPower', value: 50 },
     { path: 'electrical.solar.mppt.yieldToday', value: 3348000 },
     { path: 'electrical.solar.mppt.loadCurrent', value: 2 },
-    { path: 'electrical.solar.mppt.chargingMode', value: 'float' },
-    { path: 'electrical.solar.mppt.chargerState', value: 'float' },
-    { path: 'electrical.solar.mppt.chargerError', value: 'no_error' }
+    { path: 'electrical.solar.mppt.controllerMode', value: 'float' },
+    { path: 'electrical.solar.mppt.controllerModeNumber', value: 5 }
   ])
 })
 
-// Signal K enumerates chargingMode; the VE.Direct state goes to chargerState.
+test('names solar states as signalk-venus-plugin does', () => {
+  const modeFor = number => measurementDelta({ id: 'mppt' }, {
+    record_type: 0x01,
+    measurements: { charge_state_number: number }
+  }).updates[0].values.find(v => v.path.endsWith('.controllerMode'))?.value
+
+  assert.equal(modeFor(0), 'not charging')
+  assert.equal(modeFor(4), 'absorption')
+  assert.equal(modeFor(252), 'external control')
+  assert.equal(modeFor(99), '99')
+  assert.equal(modeFor(null), undefined)
+})
+
 test('maps VE.Direct states onto the Signal K chargingMode vocabulary', () => {
   const modeFor = state => {
-    const delta = measurementDelta({ id: 'mppt' }, {
-      record_type: 0x01,
-      measurements: { charge_state: state }
+    const delta = measurementDelta({ id: 'orion' }, {
+      record_type: 0x04,
+      measurements: { state_name: state }
     })
     const values = delta.updates[0].values
     return {
