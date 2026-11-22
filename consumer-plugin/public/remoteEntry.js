@@ -213,7 +213,7 @@
         group: row.group || null,
         groups: row.groups || [],
         // A type Signal K has no group for publishes no readings, so needs no path
-        needsPath: Boolean(row.group) || !row.recordName
+        needsPath: Boolean(row.group) || Boolean(row.publishes) || !row.recordName
       }
     }
     return {
@@ -228,7 +228,7 @@
       supportsRole: ROLE_RECORDS.indexOf(row.recordName) >= 0,
       group: row.group || null,
       groups: row.groups || [],
-      needsPath: Boolean(row.group) || !row.recordName
+      needsPath: Boolean(row.group) || Boolean(row.publishes) || !row.recordName
     }
   }
 
@@ -437,8 +437,12 @@
             placeholder: 'e.g. 1',
             help: groupsOf(row).length > 1
               ? 'Where its readings go below each of ' + groupsOf(row).join(', ') + ', e.g. 1.'
-              : 'Where its readings go below ' + (row.group || 'its group') +
-                ', e.g. 1, or 1.lithium.2 for a battery that is part of bank 1.'
+              : row.group
+                ? 'Where its readings go below ' + row.group +
+                  ', e.g. 1, or 1.lithium.2 for a battery that is part of bank 1.'
+                : row.recordName === 'dc_energy_meter'
+                  ? 'Where its readings go below the group its monitor mode selects, e.g. electrical.dcsystem; shown once it decodes.'
+                  : 'Where its readings go below its group, e.g. 1.'
           })) : h('div', { className: 'col-md-6 form-text' },
             'Signal K has no group for this type of device, so it publishes only its identity, under sensors.<MAC>.'),
           draft.supportsRole ? h('div', { className: 'col-md-6' },

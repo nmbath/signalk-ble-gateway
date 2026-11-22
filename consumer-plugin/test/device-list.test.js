@@ -21,6 +21,7 @@ test('lists heard devices with what needs no key', () => {
     mac: SENSE.mac,
     modelId: 0xa3a5,
     modelName: 'Smart Battery Sense (Rev2)',
+    publishes: false,
     recordName: 'battery_monitor',
     advertisedName: 'Starter Battery',
     rssi: -70,

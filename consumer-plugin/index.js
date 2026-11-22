@@ -83,6 +83,7 @@ module.exports = function createPlugin(app) {
           devices: deviceRows({
             discovered: discovery.list(),
             groupOf: deviceGroups,
+            publishes: publishesReadings,
             configured,
             states: consumer ? consumer.status().devices : []
           })
@@ -145,14 +146,15 @@ function venusState(service, state) {
 // A record type without an entry here publishes nothing. Falling back to a
 // path builder written for a different device would emit measurements under
 // paths that do not describe the device that sent them.
-// Records 0x09, 0x0b and 0x0d decode but publish nothing: Signal K has no
-// battery-protect, Multi or DC-meter group, and inventing paths below an
-// unrelated group would misdescribe the device. Their decoded values are
-// visible in the status API and the web application.
+// Records 0x09 and 0x0b decode but publish nothing: Signal K has no
+// battery-protect or Multi RS group, and inventing paths below an unrelated
+// group would misdescribe the device. Their decoded values are visible in the
+// status API and the web application.
 // Each entry names the Signal K electrical group the device is published
 // under, and `alsoGroups` any further groups its readings go to under the
-// same ID. A DC-DC converter's group depends on the role configured for it,
-// so `groupFor` names it from the device.
+// same ID. A DC energy meter's group depends on its monitor mode, which is
+// encrypted, so `groupFor` names it from the decoded values; a DC-DC
+// converter's depends on the role configured for it.
 const PATH_BUILDERS = {
   0x01: { group: 'solar', build: solarChargerCandidates },
   0x02: { group: 'batteries', build: batteryMonitorCandidates },
@@ -163,12 +165,13 @@ const PATH_BUILDERS = {
   0x08: { group: 'chargers', build: acChargerCandidates },
   0x0a: { group: 'batteries', build: lynxCandidates },
   0x0c: { group: 'inverters', alsoGroups: ['chargers'], build: veBusCandidates },
+  0x0d: { groupFor: dcMeterGroup, build: dcMeterCandidates },
   0x0f: { groupFor: dcDcGroup, build: orionCandidates }
 }
 
 /**
  * Signal K group of a device, for example `electrical.batteries`, or null for
- * a record type that publishes nothing.
+ * a record type that publishes nothing or a DC energy meter not yet decoded.
  */
 function deviceGroup(recordType, values, device) {
   return deviceGroups(recordType, values, device)[0] || null
@@ -182,6 +185,38 @@ function deviceGroup(recordType, values, device) {
  */
 function dcDcGroup(_values, device) {
   return device && device.role === 'alternator' ? 'alternator' : 'dcdc'
+}
+
+/** Whether a record type publishes readings once its device has a path. */
+function publishesReadings(recordType) {
+  return Boolean(PATH_BUILDERS[recordType])
+}
+
+// Venus OS service a SmartShunt or BMV in DC energy meter mode becomes, by
+// monitor mode, as the GX device and gui-v2 classify it. signalk-venus-plugin
+// publishes each service as electrical.<service>, except solarcharger, which
+// it publishes as electrical.solar.
+//   -9 solar charger   -8 wind charger    -7 shaft generator  -6 alternator
+//   -5 fuel cell       -4 water generator -3 DC/DC charger    -2 AC charger
+//   -1 generic source   1 generic load     2 electric drive    3 fridge
+//    4 water pump       5 bilge pump       6 DC system         7 inverter
+//    8 water heater
+const DC_METER_GROUPS = {
+  [-9]: 'solar',
+  [-6]: 'alternator',
+  [-5]: 'fuelcell',
+  2: 'motordrive',
+  6: 'dcsystem'
+}
+
+/**
+ * Group of a DC energy meter from its monitor mode: any other source mode is
+ * a dcsource, any other load mode a dcload. Null before it has decoded.
+ */
+function dcMeterGroup(values) {
+  const mode = values ? values.bmv_monitor_mode : null
+  if (mode == null || mode === 0) return null
+  return DC_METER_GROUPS[mode] || (mode < 0 ? 'dcsource' : 'dcload')
 }
 
 /**
@@ -431,6 +466,24 @@ function inverterRsCandidates(base, values) {
 
 function consumedCharge(values) {
   return values.consumed_ah == null ? null : values.consumed_ah * 3600
+}
+
+// A SmartShunt or BMV set up as a DC energy meter is published as
+// signalk-venus-plugin publishes the Venus service it becomes (see
+// DC_METER_GROUPS): voltage, current and power, the temperature or starter
+// voltage the aux input measures (the second as <path>-second.voltage, as
+// for /Dc/1/Voltage), all below the group its monitor mode selects. Power is
+// voltage times current, as the GX computes it.
+function dcMeterCandidates(base, values) {
+  const power = values.battery_voltage_v == null || values.battery_current_a == null
+    ? null : values.battery_voltage_v * values.battery_current_a
+  return [
+    [`${base}.voltage`, values.battery_voltage_v],
+    [`${base}.current`, values.battery_current_a],
+    [`${base}.power`, power == null ? null : Math.round(power * 100) / 100],
+    [`${base}.temperature`, values.temperature_k],
+    [`${base}-second.voltage`, values.aux_voltage_v]
+  ]
 }
 
 function lynxCandidates(base, values) {

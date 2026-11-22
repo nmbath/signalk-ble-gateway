@@ -31,18 +31,23 @@ function normalizeMac(value) {
  *   configured device) ->
  *   Signal K groups the device publishes under, its own group first (e.g.
  *   `['electrical.batteries']`); a single group or null is also accepted.
- *   Measurements are passed when the device has decoded; the device when
- *   configured, as a DC-DC converter's group depends on its role.
+ *   Measurements are passed when the device has decoded, as a DC energy
+ *   meter's group depends on them; the device when configured, as a DC-DC
+ *   converter's depends on its role.
+ * @param {function} options.publishes record type -> whether the device
+ *   publishes readings once it has a path, even if its group is not known yet
  * @param {number} now current time in milliseconds
  */
-function deviceRows({ discovered = [], configured = [], states = [], groupOf = () => null } = {}, now = Date.now()) {
+function deviceRows({
+  discovered = [], configured = [], states = [], groupOf = () => null, publishes = () => false
+} = {}, now = Date.now()) {
   const heard = new Map(discovered.map(device => [device.mac, device]))
   const stateByMac = new Map(states.map(state => [normalizeMac(state.mac), state]))
   const rows = new Map()
 
   for (const device of discovered) {
     if (now - Date.parse(device.lastSeen) > HEARD_WINDOW_MS) continue
-    rows.set(device.mac, heardRow(device, groupOf))
+    rows.set(device.mac, heardRow(device, groupOf, publishes))
   }
   for (const device of configured) {
     const mac = normalizeMac(device && device.mac)
@@ -50,7 +55,7 @@ function deviceRows({ discovered = [], configured = [], states = [], groupOf = (
     const seen = heard.get(mac)
     const state = stateByMac.get(mac) || {}
     const measurements = state.decoded ? state.decoded.measurements : null
-    const row = seen ? heardRow(seen, groupOf) : emptyRow(mac)
+    const row = seen ? heardRow(seen, groupOf, publishes) : emptyRow(mac)
     rows.set(mac, {
       ...row,
       ...(seen ? groupsOf(groupOf(seen.recordType, measurements, device)) : {}),
@@ -76,9 +81,10 @@ function groupsOf(value) {
   return { group: groups[0] || null, groups }
 }
 
-function heardRow(device, groupOf) {
+function heardRow(device, groupOf, publishes) {
   return {
     ...groupsOf(groupOf(device.recordType)),
+    publishes: Boolean(publishes(device.recordType)),
     mac: device.mac,
     modelId: device.modelId,
     modelName: modelName(device.modelId),
@@ -97,6 +103,7 @@ function emptyRow(mac) {
   return {
     group: null,
     groups: [],
+    publishes: false,
     mac,
     modelId: null,
     modelName: null,

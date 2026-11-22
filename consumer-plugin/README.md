@@ -118,6 +118,28 @@ as 3 (bulk), are sent as their number in text. The alternator names are
 `off`, `bulk`, `fault`, `absorption`, `float`, `storage`, `equalize` and
 `external control`.
 
+A SmartShunt or BMV set up as a DC energy meter (record `0x0D`) is published
+below the group its monitor mode selects, as a GX device classifies it and
+signalk-venus-plugin publishes it:
+
+```text
+monitor mode                                          group
+-9 solar charger                                      electrical.solar
+-6 alternator                                         electrical.alternator
+-5 fuel cell                                          electrical.fuelcell
+-8 wind, -7 shaft generator, -4 water generator,
+-3 DC/DC charger, -2 AC charger, -1 generic source     electrical.dcsource
+ 2 electric drive                                     electrical.motordrive
+ 6 DC system                                          electrical.dcsystem
+ 1 generic load, 3 fridge, 4 water pump,
+ 5 bilge pump, 7 inverter, 8 water heater             electrical.dcload
+```
+
+Below it go `voltage`, `current`, `power` (voltage times current, as the GX
+computes it), `temperature` when the aux input measures one, and a starter
+voltage as `<id>-second.voltage`. The monitor mode is encrypted, so the
+settings show the group only once the meter has decoded.
+
 For Issue #1 testing, please compare these values with `victron-ble read` and
 report the plugin status, Signal K paths, and any errors. Do not post the
 advertisement key. If raw advertisements are needed, mask the MAC address and
@@ -150,8 +172,8 @@ electrical.batteries.2.voltage         its readings
 
 `<dataType>.<instance>` is where the readings are published, which links a
 sensor to the battery, charger or inverter it measures. A record type
-without a Signal K group (Smart Battery Protect, Multi RS, DC energy
-meter) has no `dataType` or `instance`. The measured item itself gets only
+without a Signal K group (Smart Battery Protect, Multi RS) has no `dataType`
+or `instance`. The measured item itself gets only
 its `name`: a battery watched by a Smart Battery Sense or SmartShunt is not a
 Victron product, so no manufacturer is claimed for it. The model is the hex
 product ID when it is not known. Identity is published when it changes,
@@ -198,7 +220,7 @@ yet) and so enables the plugin; the devices it hears then appear.
   the **Signal K path** below the device's group, shown in front of the
   field: `2` for `electrical.batteries.2`. Two devices cannot share a path
   in the same group. A type Signal K has no group for (Smart
-  BatteryProtect, Multi RS, DC energy meter) needs none. A VE.Bus
+  BatteryProtect, Multi RS) needs none. A VE.Bus
   inverter/charger takes one path, used below both inverters and chargers;
   the table lists both. A BMV or
   SmartShunt also offers the secondary battery path. **Add device** or **Save** stores it, **Remove** deletes it.
@@ -264,7 +286,6 @@ layouts. No hardware was available, so their values are unverified.
 0x06  Inverter RS                         -> electrical.inverters.<id>
 0x09  Smart Battery Protect               -> diagnostic only
 0x0B  Multi RS                            -> diagnostic only
-0x0D  DC energy meter                     -> diagnostic only
 ```
 
 A Smart Battery Sense has no current sensor and fills the battery monitor

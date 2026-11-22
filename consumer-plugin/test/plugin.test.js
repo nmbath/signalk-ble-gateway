@@ -414,6 +414,30 @@ test('publishes DC/DC converter voltages on the venus plugin DC-DC paths', () =>
   ])
 })
 
+test('publishes a DC energy meter below the group its monitor mode selects', () => {
+  const meter = mode => measurementDelta({ id: 'm1' }, {
+    record_type: 0x0d,
+    measurements: { bmv_monitor_mode: mode, battery_voltage_v: 13.14, battery_current_a: 4.737, temperature_k: null, aux_voltage_v: null }
+  }).updates[0].values
+  assert.deepEqual(meter(6), [
+    { path: 'electrical.dcsystem.m1.voltage', value: 13.14 },
+    { path: 'electrical.dcsystem.m1.current', value: 4.737 },
+    { path: 'electrical.dcsystem.m1.power', value: 62.24 }
+  ])
+  const groupOf = mode => meter(mode)[0].path.split('.')[1]
+  assert.equal(groupOf(-8), 'dcsource')
+  assert.equal(groupOf(-6), 'alternator')
+  assert.equal(groupOf(-9), 'solar')
+  assert.equal(groupOf(3), 'dcload')
+  assert.equal(groupOf(2), 'motordrive')
+  // A starter voltage on the aux input goes to <path>-second
+  const aux = measurementDelta({ id: 'm1' }, {
+    record_type: 0x0d,
+    measurements: { bmv_monitor_mode: -6, battery_voltage_v: 14.1, battery_current_a: 0, aux_voltage_v: 12.8 }
+  }).updates[0].values
+  assert.deepEqual(aux.at(-1), { path: 'electrical.alternator.m1-second.voltage', value: 12.8 })
+})
+
 test('publishes consumed charge as signalk-venus-plugin does', () => {
   const delta = measurementDelta({ id: 'house' }, {
     record_type: 0x02,
