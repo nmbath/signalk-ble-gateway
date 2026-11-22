@@ -63,7 +63,7 @@ test('loads as a classic script that the admin UI does not take for a React 16 r
 test('fills a new device from what was heard', () => {
   assert.deepEqual(panel.draftFor(SENSE_ROW, {}), {
     isNew: true, mac: SENSE_ROW.mac, name: 'Starter Battery', id: '', advertisementKey: '',
-    enabled: true, secondaryBattery: '', group: null, groups: [], needsPath: false
+    enabled: true, secondaryBattery: '', role: 'dcdc', supportsRole: false, group: null, groups: [], needsPath: false
   })
   assert.deepEqual(panel.draftFor({ ...SENSE_ROW, group: 'electrical.batteries' }, {}).needsPath, true)
   assert.equal(panel.draftFor(SHUNT_ROW, {}).name, 'SmartShunt 500A/50mV')
@@ -115,6 +115,19 @@ test('a VE.Bus inverter/charger takes its path in both of its groups', () => {
   assert.match(panel.validate({ ...draft, id: '1' }, configuration, rows).id, /already publishes/)
   assert.deepEqual(panel.validate({ ...draft, id: '2' }, configuration, rows), {})
   assert.deepEqual(panel.pathsOf({ ...multi, deviceId: '2' }), groups.map(group => group + '.2'))
+})
+
+test('an Orion publishes as a DC-DC charger or, by choice, an alternator', () => {
+  const orion = { ...SENSE_ROW, mac: '00:00:00:00:00:0F', recordName: 'orion_xs', group: 'electrical.dcdc', groups: ['electrical.dcdc'] }
+  const draft = { ...panel.draftFor(orion, {}), name: 'Orion', id: '1', advertisementKey: KEY }
+  assert.equal(draft.supportsRole, true)
+  assert.equal(draft.role, 'dcdc')
+  assert.equal(panel.applyDraft({}, draft).devices[0].role, undefined)
+  const alternator = panel.applyDraft({}, { ...draft, role: 'alternator' })
+  assert.equal(alternator.devices[0].role, 'alternator')
+  assert.equal(panel.draftFor(orion, alternator).role, 'alternator')
+  // A shunt cannot take a role
+  assert.equal(panel.applyDraft({}, { ...panel.draftFor(SHUNT_ROW, {}), name: 'S', id: '2', advertisementKey: KEY, role: 'alternator' }).devices[0].role, undefined)
 })
 
 test('adds, changes and removes devices in the configuration', () => {

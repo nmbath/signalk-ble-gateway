@@ -42,6 +42,13 @@ const CONFIG_SCHEMA = Object.freeze({
             description: 'BMV/SmartShunt only: publish the auxiliary voltage as electrical.batteries.<path>',
             type: 'string'
           },
+          role: {
+            title: 'Role',
+            description: 'DC-DC converter and Orion XS only: publish as a DC-DC charger (electrical.dcdc) or as an alternator (electrical.alternator)',
+            type: 'string',
+            enum: ['dcdc', 'alternator'],
+            default: 'dcdc'
+          },
           enabled: { title: 'Enabled', type: 'boolean', default: true }
         }
       }

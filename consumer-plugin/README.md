@@ -62,6 +62,10 @@ Keys are never returned by the status API or web application.
 In the paths below, `<id>` stands for the device's configured **Signal K
 path**, which goes below the group: `1` gives `electrical.batteries.1`.
 
+Where signalk-venus-plugin publishes the same kind of device from a GX
+device, the same paths and state names are used, so BLE and GX readings line
+up and can be ranked against each other in Signal K's source priorities.
+
 Lynx Smart BMS voltage, current, state of charge, time remaining, consumed
 charge and temperature are published below `electrical.batteries.<id>`. The
 web application additionally shows BMS error, I/O status, and warning/alarm
@@ -73,15 +77,6 @@ while charge has been taken out):
 
 ```text
 electrical.batteries.<id>.capacity.consumedCharge
-```
-
-Orion XS is published as a charger:
-
-```text
-electrical.chargers.<id>.voltage
-electrical.chargers.<id>.current
-electrical.chargers.<id>.inputVoltage
-electrical.chargers.<id>.inputCurrent
 ```
 
 SmartSolar MPPT values are published as solar, the Signal K group that defines
@@ -103,39 +98,30 @@ is published as signalk-venus-plugin publishes it from a GX device, with the
 plugin's state names; a state it does not name is sent as its number in
 text. The charger error stays in the status API.
 
-Orion Smart DC-DC converters advertise record `0x04`, which carries only
-voltages:
+Orion XS (record `0x0F`) and Orion Smart DC-DC converters (record `0x04`,
+which carries only voltages) are published as a GX device's DC-DC charger.
+A GX device can also show an Orion as an alternator; choose **Role:
+Alternator** in the device settings to publish it that way instead:
 
 ```text
-electrical.chargers.<id>.voltage
-electrical.chargers.<id>.inputVoltage
+electrical.dcdc.<id>.voltage              output voltage (or electrical.alternator.<id>...)
+electrical.dcdc.<id>.current              output current (Orion XS)
+electrical.dcdc.<id>.input.voltage
+electrical.dcdc.<id>.input.current        (Orion XS)
+electrical.dcdc.<id>.chargingMode         state
+electrical.dcdc.<id>.chargingModeNumber   state number
 ```
+
+The DC-DC state names are signalk-venus-plugin's own (for example
+`absorbtion`, and `Ext Control` for state 7); states it does not name, such
+as 3 (bulk), are sent as their number in text. The alternator names are
+`off`, `bulk`, `fault`, `absorption`, `float`, `storage`, `equalize` and
+`external control`.
 
 For Issue #1 testing, please compare these values with `victron-ble read` and
 report the plugin status, Signal K paths, and any errors. Do not post the
 advertisement key. If raw advertisements are needed, mask the MAC address and
 share only the payload and RSSI.
-
-Operating state and charger error are published as text alongside the
-measurements:
-
-```text
-electrical.chargers.<id>.chargingMode
-electrical.chargers.<id>.chargerState
-electrical.chargers.<id>.chargerError
-```
-
-`chargingMode` is a Signal K schema leaf with an enumerated vocabulary:
-`bulk`, `acceptance`, `overcharge`, `float`, `equalize`, `unknown` or `other`.
-VE.Direct states do not map one to one, so Victron's `absorption` is published
-as `acceptance`, and a state with no Signal K equivalent, such as
-`external_control`, is published as `other`.
-
-`chargerState` and `chargerError` are explicit extensions, as the schema
-defines no leaf for either. They carry the exact VE.Direct names, for example
-`bulk`, `absorption`, `float`, `external_control` and `no_error`, so the
-precise device state is preserved. A code without a settled meaning is
-published as `unknown_<n>` rather than guessed.
 
 ## Device identity and reception
 

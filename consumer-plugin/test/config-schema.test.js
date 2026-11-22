@@ -8,6 +8,6 @@ test('describes the stored device configuration', () => {
   const item = CONFIG_SCHEMA.properties.devices.items
   assert.deepEqual(item.required, ['id', 'name', 'mac', 'advertisementKey'])
   assert.deepEqual(Object.keys(item.properties),
-    ['id', 'name', 'mac', 'advertisementKey', 'secondaryBattery', 'enabled'])
+    ['id', 'name', 'mac', 'advertisementKey', 'secondaryBattery', 'role', 'enabled'])
   assert.equal(CONFIG_SCHEMA.properties.discovered, undefined)
 })

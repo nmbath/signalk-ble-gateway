@@ -97,29 +97,10 @@ module.exports = function createPlugin(app) {
   }
 }
 
-// Signal K enumerates chargingMode as bulk, acceptance, overcharge, float,
-// equalize, unknown or other. VE.Direct device states do not map one to one:
-// Victron's "absorption" is Signal K's "acceptance", and states such as
-// external_control or low_power have no Signal K equivalent. Map to the
-// permitted vocabulary here and publish the exact VE.Direct name separately
-// on chargerState, so no information is lost.
-const SIGNALK_CHARGING_MODES = {
-  bulk: 'bulk',
-  absorption: 'acceptance',
-  float: 'float',
-  equalize_manual: 'equalize',
-  repeated_absorption: 'acceptance',
-  storage: 'float'
-}
-
-function chargingMode(state) {
-  if (state == null) return null
-  return SIGNALK_CHARGING_MODES[state] || 'other'
-}
-
 // Device state names as signalk-venus-plugin gives them, per Venus service.
 // A state without a name is published as its number in text, as the plugin
-// does.
+// does. The DC-DC names (including "absorbtion" and "Ext Control" for 7) are
+// the plugin's own, kept so both plugins send the same values.
 const VENUS_STATES = {
   solarcharger: {
     0: 'not charging',
@@ -131,6 +112,28 @@ const VENUS_STATES = {
     7: 'equalize',
     245: 'wake up',
     252: 'external control'
+  },
+  alternator: {
+    0: 'off',
+    1: 'bulk',
+    2: 'fault',
+    3: 'bulk',
+    4: 'absorption',
+    5: 'float',
+    6: 'storage',
+    7: 'equalize',
+    252: 'external control'
+  },
+  dcdc: {
+    0: 'off',
+    1: 'bulk',
+    2: 'absorbtion',
+    5: 'float',
+    6: 'storage',
+    7: 'Ext Control',
+    8: 'disabled',
+    9: 'float',
+    11: 'power supply'
   }
 }
 
@@ -148,26 +151,37 @@ function venusState(service, state) {
 // visible in the status API and the web application.
 // Each entry names the Signal K electrical group the device is published
 // under, and `alsoGroups` any further groups its readings go to under the
-// same ID.
+// same ID. A DC-DC converter's group depends on the role configured for it,
+// so `groupFor` names it from the device.
 const PATH_BUILDERS = {
   0x01: { group: 'solar', build: solarChargerCandidates },
   0x02: { group: 'batteries', build: batteryMonitorCandidates },
   0x03: { group: 'inverters', build: inverterCandidates },
-  0x04: { group: 'chargers', build: dcDcConverterCandidates },
+  0x04: { groupFor: dcDcGroup, build: dcDcConverterCandidates },
   0x05: { group: 'batteries', build: smartLithiumCandidates },
   0x06: { group: 'inverters', build: inverterRsCandidates },
   0x08: { group: 'chargers', build: acChargerCandidates },
   0x0a: { group: 'batteries', build: lynxCandidates },
   0x0c: { group: 'inverters', alsoGroups: ['chargers'], build: veBusCandidates },
-  0x0f: { group: 'chargers', build: orionCandidates }
+  0x0f: { groupFor: dcDcGroup, build: orionCandidates }
 }
 
 /**
  * Signal K group of a device, for example `electrical.batteries`, or null for
  * a record type that publishes nothing.
  */
-function deviceGroup(recordType) {
-  return deviceGroups(recordType)[0] || null
+function deviceGroup(recordType, values, device) {
+  return deviceGroups(recordType, values, device)[0] || null
+}
+
+/**
+ * Venus service of a DC-DC converter or Orion XS: `dcdc`, or `alternator`
+ * for one configured with the role `alternator` (charging from the engine's
+ * alternator), as a GX device can show an Orion either way. The
+ * advertisement does not carry the role, so it is configured per device.
+ */
+function dcDcGroup(_values, device) {
+  return device && device.role === 'alternator' ? 'alternator' : 'dcdc'
 }
 
 /**
@@ -176,10 +190,12 @@ function deviceGroup(recordType) {
  * VE.Bus inverter/charger. Empty for a record
  * type that publishes nothing.
  */
-function deviceGroups(recordType) {
+function deviceGroups(recordType, values, device) {
   const builder = PATH_BUILDERS[recordType]
   if (!builder) return []
-  return [builder.group, ...(builder.alsoGroups || [])].map(group => `electrical.${group}`)
+  const group = builder.groupFor ? builder.groupFor(values, device) : builder.group
+  if (!group) return []
+  return [group, ...(builder.alsoGroups || [])].map(name => `electrical.${name}`)
 }
 
 /**
@@ -196,8 +212,8 @@ function relativePath(value) {
  * `electrical.batteries.1.lithium.2` for a battery that is part of bank 1.
  * Null for a record type that publishes nothing, or a device without an ID.
  */
-function devicePath(device, recordType) {
-  const group = deviceGroup(recordType)
+function devicePath(device, recordType, values) {
+  const group = deviceGroup(recordType, values, device)
   const id = relativePath(device.id)
   return group && id ? `${group}.${id}` : null
 }
@@ -207,10 +223,10 @@ function devicePath(device, recordType) {
  * the `electrical.` prefix, e.g. `{ inverters: 'electrical.inverters.1',
  * chargers: 'electrical.chargers.1' }`. Empty without an ID.
  */
-function devicePaths(device, recordType) {
+function devicePaths(device, recordType, values) {
   const id = relativePath(device.id)
   if (!id) return {}
-  return Object.fromEntries(deviceGroups(recordType)
+  return Object.fromEntries(deviceGroups(recordType, values, device)
     .map(group => [group.slice('electrical.'.length), `${group}.${id}`]))
 }
 
@@ -262,9 +278,9 @@ function sensorPath(device) {
  */
 function measurementDelta(device, decoded, reception = {}) {
   const values = decoded.measurements
-  const base = devicePath(device, decoded.record_type)
-  const paths = devicePaths(device, decoded.record_type)
-  const candidates = base ? PATH_BUILDERS[decoded.record_type].build(base, values, paths) : []
+  const base = devicePath(device, decoded.record_type, values)
+  const paths = devicePaths(device, decoded.record_type, values)
+  const candidates = base ? PATH_BUILDERS[decoded.record_type].build(base, values, paths, device) : []
   // The item's name goes with every reading, not only when it changes:
   // Signal K's source priorities hand a path to a lower-ranked source once
   // the preferred one has been silent for the fallback time (15 s by
@@ -320,17 +336,25 @@ function solarChargerCandidates(base, values) {
   ]
 }
 
-// The DC/DC converter advertisement carries only voltages plus operating
-// state. Output side uses the standard charger voltage leaf; the source side
-// is an explicit extension, matching how the Orion XS record is published.
-// chargingMode is schema-defined; chargerError is an explicit extension.
-function dcDcConverterCandidates(base, values) {
+// DC-DC converters and Orion XS chargers are published as
+// signalk-venus-plugin publishes a com.victronenergy.dcdc service, or a
+// com.victronenergy.alternator one for a device with the role `alternator`:
+// under electrical.dcdc or electrical.alternator, output as voltage and
+// current, source side as input.voltage and input.current, and the state as
+// the plugin's name for that service (chargingMode) and number. The error
+// code stays in the status API.
+function dcDcState(base, values, device) {
+  return [
+    [`${base}.chargingMode`, venusState(dcDcGroup(values, device), values.state)],
+    [`${base}.chargingModeNumber`, values.state]
+  ]
+}
+
+function dcDcConverterCandidates(base, values, _paths, device) {
   return [
     [`${base}.voltage`, values.output_voltage_v],
-    [`${base}.inputVoltage`, values.input_voltage_v],
-    [`${base}.chargingMode`, chargingMode(values.state_name)],
-    [`${base}.chargerState`, values.state_name],
-    [`${base}.chargerError`, values.error_name]
+    [`${base}.input.voltage`, values.input_voltage_v],
+    ...dcDcState(base, values, device)
   ]
 }
 
@@ -421,18 +445,13 @@ function lynxCandidates(base, values) {
   ]
 }
 
-// Signal K has no DC/DC converter group. Model the Orion as the charger it
-// functionally is. voltage/current are standard charger output qualities;
-// inputVoltage/inputCurrent are explicit extensions for the source side.
-function orionCandidates(base, values) {
+function orionCandidates(base, values, _paths, device) {
   return [
     [`${base}.voltage`, values.output_voltage_v],
     [`${base}.current`, values.output_current_a],
-    [`${base}.inputVoltage`, values.input_voltage_v],
-    [`${base}.inputCurrent`, values.input_current_a],
-    [`${base}.chargingMode`, chargingMode(values.state_name)],
-    [`${base}.chargerState`, values.state_name],
-    [`${base}.chargerError`, values.error_name]
+    [`${base}.input.voltage`, values.input_voltage_v],
+    [`${base}.input.current`, values.input_current_a],
+    ...dcDcState(base, values, device)
   ]
 }
 
@@ -548,7 +567,7 @@ const VICTRON_VENDOR = 'Victron Energy'
  */
 function identityDelta(device, decoded, advertisedName) {
   const sensor = sensorPath(device)
-  const base = devicePath(device, decoded.record_type)
+  const base = devicePath(device, decoded.record_type, decoded.measurements)
   const link = base ? dataLink(base) : null
   const modelId = `0x${decoded.model_id.toString(16).toUpperCase().padStart(4, '0')}`
   const name = device.name || device.mac
@@ -560,7 +579,7 @@ function identityDelta(device, decoded, advertisedName) {
     ...(base ? [
       [`${sensor}.dataType`, link.dataType],
       [`${sensor}.instance`, link.instance],
-      ...Object.values(devicePaths(device, decoded.record_type)).map(path => [`${path}.name`, name])
+      ...Object.values(devicePaths(device, decoded.record_type, decoded.measurements)).map(path => [`${path}.name`, name])
     ] : [])
   ]
   return {

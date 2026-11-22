@@ -30,6 +30,9 @@
   // 1.lithium.2 for electrical.batteries.1.lithium.2; a leading dot is ignored
   var ID_PATTERN = /^\.?[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*$/
   var SECONDARY_GROUP = 'electrical.batteries'
+  // Records whose device can be published as a DC-DC charger or an alternator
+  var ROLE_RECORDS = ['dc_dc_converter', 'orion_xs']
+  var ROLE_GROUPS = { dcdc: 'electrical.dcdc', alternator: 'electrical.alternator' }
   var LIST_MAX_HEIGHT = '320px'
   // The longest name one advertisement can carry: 31 bytes, less the 2-byte
   // AD header. Devices with longer names send them shortened to fit.
@@ -205,6 +208,8 @@
         advertisementKey: existing.advertisementKey || '',
         enabled: existing.enabled !== false,
         secondaryBattery: existing.secondaryBattery || '',
+        role: existing.role === 'alternator' ? 'alternator' : 'dcdc',
+        supportsRole: ROLE_RECORDS.indexOf(row.recordName) >= 0,
         group: row.group || null,
         groups: row.groups || [],
         // A type Signal K has no group for publishes no readings, so needs no path
@@ -219,6 +224,8 @@
       advertisementKey: '',
       enabled: true,
       secondaryBattery: '',
+      role: 'dcdc',
+      supportsRole: ROLE_RECORDS.indexOf(row.recordName) >= 0,
       group: row.group || null,
       groups: row.groups || [],
       needsPath: Boolean(row.group) || !row.recordName
@@ -252,9 +259,13 @@
     return groups.map(function (group) { return group + '.' + id })
   }
 
-  /** Groups a row or draft publishes under, its own group first. */
+  /**
+   * Groups a row or draft publishes under, its own group first. A draft
+   * with a role publishes under the group its chosen role selects.
+   */
   function groupsOf(item) {
     if (!item) return []
+    if (item.supportsRole && item.role) return [ROLE_GROUPS[item.role] || ROLE_GROUPS.dcdc]
     if (item.groups && item.groups.length) return item.groups
     return item.group ? [item.group] : []
   }
@@ -317,6 +328,11 @@
       enabled: draft.enabled
     })
     if (!device.id) delete device.id
+    if (draft.supportsRole && draft.role === 'alternator') {
+      device.role = 'alternator'
+    } else {
+      delete device.role
+    }
     if (relativePath(draft.secondaryBattery)) {
       device.secondaryBattery = relativePath(draft.secondaryBattery)
     } else {
@@ -417,7 +433,7 @@
             help: 'VictronConnect: device settings, Product info, Instant readout details, Show encryption data'
           })),
           draft.needsPath || draft.id ? field(fieldProps({
-            name: 'id', label: 'Signal K path', width: 'col-md-6', mono: true, prefix: row.group,
+            name: 'id', label: 'Signal K path', width: 'col-md-6', mono: true, prefix: groupsOf(draft)[0] || row.group,
             placeholder: 'e.g. 1',
             help: groupsOf(row).length > 1
               ? 'Where its readings go below each of ' + groupsOf(row).join(', ') + ', e.g. 1.'
@@ -425,6 +441,17 @@
                 ', e.g. 1, or 1.lithium.2 for a battery that is part of bank 1.'
           })) : h('div', { className: 'col-md-6 form-text' },
             'Signal K has no group for this type of device, so it publishes only its identity, under sensors.<MAC>.'),
+          draft.supportsRole ? h('div', { className: 'col-md-6' },
+            h('label', { className: 'form-label', htmlFor: 'victron-ble-role' }, 'Role'),
+            h('select', {
+              id: 'victron-ble-role',
+              className: 'form-select form-select-sm',
+              value: draft.role,
+              onChange: function (event) { onChange('role', event.target.value) }
+            },
+            h('option', { value: 'dcdc' }, 'DC/DC charger'),
+            h('option', { value: 'alternator' }, 'Alternator')),
+            h('div', { className: 'form-text' }, 'How a GX device shows it: under electrical.dcdc or electrical.alternator')) : null,
           showSecondary ? field(fieldProps({
             name: 'secondaryBattery', label: 'Secondary battery path', width: 'col-md-6', mono: true,
             prefix: SECONDARY_GROUP, placeholder: 'optional, e.g. 2',

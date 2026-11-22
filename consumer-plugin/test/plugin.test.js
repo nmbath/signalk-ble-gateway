@@ -310,7 +310,7 @@ test('two batteries of one bank publish apart, each with its name as the source'
   assert.deepEqual(measurementDelta({ name: 'x' }, decoded, {}).updates[0].values, [])
 })
 
-test('publishes Orion output and input measurements on charger paths', () => {
+test('publishes Orion XS measurements on the venus plugin DC-DC paths', () => {
   const delta = measurementDelta({ id: 'orionSt' }, {
     record_type: 0x0f,
     measurements: {
@@ -327,13 +327,13 @@ test('publishes Orion output and input measurements on charger paths', () => {
   })
 
   assert.deepEqual(delta.updates[0].values, [
-    { path: 'electrical.chargers.orionSt.voltage', value: 13.57 },
-    { path: 'electrical.chargers.orionSt.current', value: 48.8 },
-    { path: 'electrical.chargers.orionSt.inputVoltage', value: 13.88 },
-    { path: 'electrical.chargers.orionSt.inputCurrent', value: 48.8 },
-    { path: 'electrical.chargers.orionSt.chargingMode', value: 'bulk' },
-    { path: 'electrical.chargers.orionSt.chargerState', value: 'bulk' },
-    { path: 'electrical.chargers.orionSt.chargerError', value: 'no_error' }
+    { path: 'electrical.dcdc.orionSt.voltage', value: 13.57 },
+    { path: 'electrical.dcdc.orionSt.current', value: 48.8 },
+    { path: 'electrical.dcdc.orionSt.input.voltage', value: 13.88 },
+    { path: 'electrical.dcdc.orionSt.input.current', value: 48.8 },
+    // signalk-venus-plugin names no DC-DC state 3, so sends its number
+    { path: 'electrical.dcdc.orionSt.chargingMode', value: '3' },
+    { path: 'electrical.dcdc.orionSt.chargingModeNumber', value: 3 }
   ])
 })
 
@@ -376,31 +376,22 @@ test('names solar states as signalk-venus-plugin does', () => {
   assert.equal(modeFor(null), undefined)
 })
 
-test('maps VE.Direct states onto the Signal K chargingMode vocabulary', () => {
-  const modeFor = state => {
-    const delta = measurementDelta({ id: 'orion' }, {
-      record_type: 0x04,
-      measurements: { state_name: state }
-    })
-    const values = delta.updates[0].values
-    return {
-      mode: values.find(v => v.path.endsWith('.chargingMode'))?.value,
-      state: values.find(v => v.path.endsWith('.chargerState'))?.value
-    }
-  }
-
-  assert.deepEqual(modeFor('absorption'), { mode: 'acceptance', state: 'absorption' })
-  assert.deepEqual(modeFor('bulk'), { mode: 'bulk', state: 'bulk' })
-  assert.deepEqual(modeFor('float'), { mode: 'float', state: 'float' })
-  assert.deepEqual(modeFor('equalize_manual'), { mode: 'equalize', state: 'equalize_manual' })
-  // No Signal K equivalent: fall back to the permitted 'other'.
-  assert.deepEqual(modeFor('external_control'), { mode: 'other', state: 'external_control' })
-  assert.deepEqual(modeFor('off'), { mode: 'other', state: 'off' })
-  assert.deepEqual(modeFor('unknown_99'), { mode: 'other', state: 'unknown_99' })
-  assert.deepEqual(modeFor(null), { mode: undefined, state: undefined })
+test('publishes an Orion with the alternator role as the venus plugin alternator', () => {
+  const delta = measurementDelta({ id: 'engine', role: 'alternator' }, {
+    record_type: 0x0f,
+    measurements: { output_voltage_v: 13.6, output_current_a: 20, input_voltage_v: 14.2, input_current_a: 21, state: 4 }
+  })
+  assert.deepEqual(delta.updates[0].values, [
+    { path: 'electrical.alternator.engine.voltage', value: 13.6 },
+    { path: 'electrical.alternator.engine.current', value: 20 },
+    { path: 'electrical.alternator.engine.input.voltage', value: 14.2 },
+    { path: 'electrical.alternator.engine.input.current', value: 21 },
+    { path: 'electrical.alternator.engine.chargingMode', value: 'absorption' },
+    { path: 'electrical.alternator.engine.chargingModeNumber', value: 4 }
+  ])
 })
 
-test('publishes DC/DC converter voltages on charger paths', () => {
+test('publishes DC/DC converter voltages on the venus plugin DC-DC paths', () => {
   const delta = measurementDelta({ id: 'orionStart' }, {
     record_type: 0x04,
     measurements: {
@@ -416,11 +407,10 @@ test('publishes DC/DC converter voltages on charger paths', () => {
   })
 
   assert.deepEqual(delta.updates[0].values, [
-    { path: 'electrical.chargers.orionStart.voltage', value: 12.9 },
-    { path: 'electrical.chargers.orionStart.inputVoltage', value: 13.15 },
-    { path: 'electrical.chargers.orionStart.chargingMode', value: 'other' },
-    { path: 'electrical.chargers.orionStart.chargerState', value: 'off' },
-    { path: 'electrical.chargers.orionStart.chargerError', value: 'no_error' }
+    { path: 'electrical.dcdc.orionStart.voltage', value: 12.9 },
+    { path: 'electrical.dcdc.orionStart.input.voltage', value: 13.15 },
+    { path: 'electrical.dcdc.orionStart.chargingMode', value: 'off' },
+    { path: 'electrical.dcdc.orionStart.chargingModeNumber', value: 0 }
   ])
 })
 

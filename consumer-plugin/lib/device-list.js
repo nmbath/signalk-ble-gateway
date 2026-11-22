@@ -27,9 +27,12 @@ function normalizeMac(value) {
  * @param {object[]} options.discovered from VictronDiscovery.list()
  * @param {object[]} options.configured the configured devices
  * @param {object[]} options.states VictronConsumer.status().devices
- * @param {function} options.groupOf record type -> Signal K groups the device
- *   publishes under, its own group first (e.g. `['electrical.batteries']`);
- *   a single group or null is also accepted
+ * @param {function} options.groupOf (record type, decoded measurements,
+ *   configured device) ->
+ *   Signal K groups the device publishes under, its own group first (e.g.
+ *   `['electrical.batteries']`); a single group or null is also accepted.
+ *   Measurements are passed when the device has decoded; the device when
+ *   configured, as a DC-DC converter's group depends on its role.
  * @param {number} now current time in milliseconds
  */
 function deviceRows({ discovered = [], configured = [], states = [], groupOf = () => null } = {}, now = Date.now()) {
@@ -46,8 +49,11 @@ function deviceRows({ discovered = [], configured = [], states = [], groupOf = (
     if (!mac) continue
     const seen = heard.get(mac)
     const state = stateByMac.get(mac) || {}
+    const measurements = state.decoded ? state.decoded.measurements : null
+    const row = seen ? heardRow(seen, groupOf) : emptyRow(mac)
     rows.set(mac, {
-      ...(seen ? heardRow(seen, groupOf) : emptyRow(mac)),
+      ...row,
+      ...(seen ? groupsOf(groupOf(seen.recordType, measurements, device)) : {}),
       configured: true,
       deviceId: device.id || null,
       displayName: device.name || null,
