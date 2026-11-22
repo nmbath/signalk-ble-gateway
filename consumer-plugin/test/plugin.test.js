@@ -144,8 +144,8 @@ test('publishes identity once per change and reception with every reading', () =
 
 test('identifies a sensor without an electrical group, with no data link', () => {
   const delta = identityDelta(
-    { id: 'protect', name: 'Protect', mac: 'aa:bb:cc:dd:ee:ff' },
-    { record_type: 0x09, model_id: 0xfffe, model_name: null },
+    { id: 'multi', name: 'Protect', mac: 'aa:bb:cc:dd:ee:ff' },
+    { record_type: 0x0b, model_id: 0xfffe, model_name: null },
     null
   )
   const paths = Object.fromEntries(delta.updates[0].values.map(({ path, value }) => [path, value]))
@@ -244,6 +244,28 @@ test('publishes an AC charger on the paths signalk-venus-plugin uses', () => {
     { path: 'electrical.chargers.shore.chargingModeNumber', value: 3 },
     { path: 'electrical.chargers.shore.name', value: 'Shore charger' }
   ])
+})
+
+test('publishes a Smart BatteryProtect as a switch', () => {
+  const { decodeBatteryProtect } = require('../lib/victron')
+  const protect = measurements => measurementDelta({ id: 'bp1', name: 'Loads' }, { record_type: 0x09, measurements })
+    .updates[0].values
+  assert.deepEqual(protect({ state_name: 'active', output_state: 1, input_voltage_v: 13.14, output_voltage_v: 13.13, off_reason: 0, off_reasons: [] }), [
+    { path: 'electrical.switches.bp1.state', value: true },
+    { path: 'electrical.switches.bp1.voltage', value: 13.13 },
+    { path: 'electrical.switches.bp1.input.voltage', value: 13.14 },
+    { path: 'electrical.switches.bp1.deviceState', value: 'active' },
+    { path: 'electrical.switches.bp1.offReason', value: 'none' },
+    { path: 'electrical.switches.bp1.name', value: 'Loads' }
+  ])
+  // Switched off by its remote input (off reason 8), as seen on the boat
+  const data = Buffer.alloc(15)
+  data.writeUInt8(0, 0)
+  data.writeUInt8(0, 1)
+  data.writeUInt32LE(8, 11)
+  const off = protect(decodeBatteryProtect(data))
+  assert.deepEqual(off.find(v => v.path.endsWith('.state')).value, false)
+  assert.deepEqual(off.find(v => v.path.endsWith('.offReason')).value, 'remote_input')
 })
 
 test('publishes SmartLithium cells and balancer status like bt-sensors', () => {

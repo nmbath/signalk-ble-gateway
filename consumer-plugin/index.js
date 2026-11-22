@@ -146,9 +146,9 @@ function venusState(service, state) {
 // A record type without an entry here publishes nothing. Falling back to a
 // path builder written for a different device would emit measurements under
 // paths that do not describe the device that sent them.
-// Records 0x09 and 0x0b decode but publish nothing: Signal K has no
-// battery-protect or Multi RS group, and inventing paths below an unrelated
-// group would misdescribe the device. Their decoded values are visible in the
+// Record 0x0b (Multi RS) decodes but publishes nothing: no path has been
+// agreed for it, and inventing paths below an unrelated group would
+// misdescribe the device. Their decoded values are visible in the
 // status API and the web application.
 // Each entry names the Signal K electrical group the device is published
 // under, and `alsoGroups` any further groups its readings go to under the
@@ -163,6 +163,7 @@ const PATH_BUILDERS = {
   0x05: { group: 'batteries', build: smartLithiumCandidates },
   0x06: { group: 'inverters', build: inverterRsCandidates },
   0x08: { group: 'chargers', build: acChargerCandidates },
+  0x09: { group: 'switches', build: batteryProtectCandidates },
   0x0a: { group: 'batteries', build: lynxCandidates },
   0x0c: { group: 'inverters', alsoGroups: ['chargers'], build: veBusCandidates },
   0x0d: { groupFor: dcMeterGroup, build: dcMeterCandidates },
@@ -508,6 +509,42 @@ function orionCandidates(base, values, _paths, device) {
   ]
 }
 
+// A Smart BatteryProtect is a DC load switch, so it is published under
+// electrical.switches, where signalk-venus-plugin publishes a GX device's
+// switchable outputs: state as a boolean (true when the output is on), plus
+// its output and input voltages. Neither Signal K nor the venus plugin knows
+// a BatteryProtect, so deviceState (e.g. active, off) and offReason (e.g.
+// remote_input, or none) are this plugin's own leaves.
+const OUTPUT_ON = 1
+const OUTPUT_OFF = 0
+
+function batteryProtectCandidates(base, values) {
+  const output = values.output_state
+  return [
+    [`${base}.state`, output === OUTPUT_ON ? true : output === OUTPUT_OFF ? false : null],
+    [`${base}.voltage`, values.output_voltage_v],
+    [`${base}.input.voltage`, values.input_voltage_v],
+    [`${base}.deviceState`, values.state_name],
+    [`${base}.offReason`, offReasonText(values)]
+  ]
+}
+
+function offReasonText(values) {
+  if (values.off_reason == null) return null
+  if (values.off_reasons && values.off_reasons.length) return values.off_reasons.join(', ')
+  return values.off_reason === 0 ? 'none' : `unknown_0x${values.off_reason.toString(16)}`
+}
+
+// Metadata for the BatteryProtect leaves, sent with the device's identity
+function batteryProtectMeta(base) {
+  return [
+    { path: `${base}.state`, value: { units: 'bool', description: 'Output on (true) or off (false)' } },
+    { path: `${base}.input.voltage`, value: { units: 'V', description: 'Input (battery side) voltage' } },
+    { path: `${base}.deviceState`, value: { description: 'Device state, e.g. active or off' } },
+    { path: `${base}.offReason`, value: { description: 'Why the output is off, e.g. remote_input; none when on' } }
+  ]
+}
+
 // AC charger states as signalk-venus-plugin names them for a
 // com.victronenergy.charger service.
 const AC_CHARGER_STATES = {
@@ -649,7 +686,8 @@ function identityDelta(device, decoded, advertisedName) {
         { path: `${sensor}.dataType`, value: { description: 'Signal K group the sensor readings are published under' } },
         { path: `${sensor}.instance`, value: { description: 'Instance within dataType the sensor readings are published under' } },
         ...(base && decoded.record_type === 0x05 && decoded.measurements
-          ? smartLithiumMeta(base, decoded.measurements) : [])
+          ? smartLithiumMeta(base, decoded.measurements) : []),
+        ...(base && decoded.record_type === 0x09 ? batteryProtectMeta(base) : [])
       ]
     }]
   }

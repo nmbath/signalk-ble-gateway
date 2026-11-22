@@ -140,6 +140,21 @@ computes it), `temperature` when the aux input measures one, and a starter
 voltage as `<id>-second.voltage`. The monitor mode is encrypted, so the
 settings show the group only once the meter has decoded.
 
+A Smart BatteryProtect is a DC load switch, so it is published under
+`electrical.switches`, where signalk-venus-plugin publishes a GX device's
+switchable outputs:
+
+```text
+electrical.switches.<id>.state           true when the output is on
+electrical.switches.<id>.voltage         output voltage, V
+electrical.switches.<id>.input.voltage   input (battery side) voltage, V
+electrical.switches.<id>.deviceState     e.g. active, off
+electrical.switches.<id>.offReason       e.g. remote_input; none when on
+```
+
+Neither Signal K nor the venus plugin defines `deviceState` or `offReason`;
+they are sent with units and descriptions as metadata.
+
 For Issue #1 testing, please compare these values with `victron-ble read` and
 report the plugin status, Signal K paths, and any errors. Do not post the
 advertisement key. If raw advertisements are needed, mask the MAC address and
@@ -172,7 +187,7 @@ electrical.batteries.2.voltage         its readings
 
 `<dataType>.<instance>` is where the readings are published, which links a
 sensor to the battery, charger or inverter it measures. A record type
-without a Signal K group (Smart Battery Protect, Multi RS) has no `dataType`
+without a Signal K group (Multi RS) has no `dataType`
 or `instance`. The measured item itself gets only
 its `name`: a battery watched by a Smart Battery Sense or SmartShunt is not a
 Victron product, so no manufacturer is claimed for it. The model is the hex
@@ -219,8 +234,8 @@ yet) and so enables the plugin; the devices it hears then appear.
   settings, Product info, Instant readout details, Show encryption data) and
   the **Signal K path** below the device's group, shown in front of the
   field: `2` for `electrical.batteries.2`. Two devices cannot share a path
-  in the same group. A type Signal K has no group for (Smart
-  BatteryProtect, Multi RS) needs none. A VE.Bus
+  in the same group. A type Signal K has no group for (Multi RS)
+  needs none. A VE.Bus
   inverter/charger takes one path, used below both inverters and chargers;
   the table lists both. A BMV or
   SmartShunt also offers the secondary battery path. **Add device** or **Save** stores it, **Remove** deletes it.
@@ -284,7 +299,6 @@ layouts. No hardware was available, so their values are unverified.
 0x03  inverter          Phoenix           -> electrical.inverters.<id>
 0x05  SmartLithium                        -> electrical.batteries.<id>
 0x06  Inverter RS                         -> electrical.inverters.<id>
-0x09  Smart Battery Protect               -> diagnostic only
 0x0B  Multi RS                            -> diagnostic only
 ```
 

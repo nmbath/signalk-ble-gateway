@@ -648,12 +648,27 @@ function decodeDcDcConverter(data) {
   }
 }
 
+/**
+ * VE_REG_DEVICE_OFF_REASON_2 bits, as the victron-ble reference
+ * implementation names them. Engine shutdown was confirmed against
+ * VictronConnect notification #8 on an Orion XS, and remote input on a
+ * Smart BatteryProtect switched off by its remote input.
+ */
+const OFF_REASONS = [
+  [0x001, 'no_input_power'],
+  [0x002, 'switched_off_switch'],
+  [0x004, 'switched_off_register'],
+  [0x008, 'remote_input'],
+  [0x010, 'protection_active'],
+  [0x020, 'pay_as_you_go_out_of_credit'],
+  [0x040, 'bms'],
+  [0x080, 'engine_shutdown'],
+  [0x100, 'analysing_input_voltage']
+]
+
 function decodeOrionOffReasons(value) {
   if (value === null) return []
-  const reasons = []
-  // Confirmed against VictronConnect notification #8 on the observed Orion XS.
-  if ((value & 0x80) !== 0) reasons.push('engine_shutdown')
-  return reasons
+  return OFF_REASONS.filter(([bit]) => (value & bit) !== 0).map(([, name]) => name)
 }
 
 /**
