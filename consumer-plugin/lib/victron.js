@@ -59,7 +59,7 @@ function decodeEnvelope(advertisement, keyValue) {
   const decrypted = Buffer.concat([decipher.update(payload.subarray(8)), decipher.final()])
 
   const decoder = RECORD_DECODERS[recordType]
-  const measurements = decoder ? decoder(decrypted) : null
+  const measurements = decoder ? tidy(decoder(decrypted)) : null
 
   return {
     company_id: VICTRON_COMPANY_ID,
@@ -71,6 +71,26 @@ function decodeEnvelope(advertisement, keyValue) {
     decrypted_data: decrypted.toString('hex').toUpperCase(),
     measurements
   }
+}
+
+// Significant digits kept when tidying a scaled reading. Every field the
+// records carry has at most 7, so 12 removes only binary floating-point
+// noise such as 12.370000000000001 (from 1237 * 0.01).
+const SIGNIFICANT_DIGITS = 12
+
+/**
+ * A value with the floating-point noise of scaling removed from every number
+ * in it, nested objects and arrays included.
+ */
+function tidy(value) {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? Number(value.toPrecision(SIGNIFICANT_DIGITS)) : value
+  }
+  if (Array.isArray(value)) return value.map(tidy)
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, tidy(item)]))
+  }
+  return value
 }
 
 function readBits(buffer, start, width, signed = false) {
@@ -643,6 +663,7 @@ const RECORD_DECODERS = {
 }
 
 module.exports = {
+  tidy,
   RECORD_TYPES,
   readClearHeader,
   decodeAuxInput,

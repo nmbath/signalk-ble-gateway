@@ -546,6 +546,12 @@ test('treats an all-ones signed current as unavailable', () => {
   }
 })
 
+test('removes floating-point noise from decoded values', () => {
+  const { tidy } = require('../lib/victron')
+  assert.deepEqual(tidy({ v: 1237 * 0.01, cells: [{ v: 280.65000000000003 }], state: 'ok', none: null }),
+    { v: 12.37, cells: [{ v: 280.65 }], state: 'ok', none: null })
+})
+
 test('still sign-extends a genuine negative current', () => {
   const data = Buffer.alloc(16)
   writeBits(data, 66, 22, -1500)

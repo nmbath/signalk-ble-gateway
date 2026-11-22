@@ -4,6 +4,7 @@ const { CONFIG_SCHEMA } = require('./lib/config-schema')
 const { VictronConsumer } = require('./lib/consumer')
 const { deviceRows } = require('./lib/device-list')
 const { VictronDiscovery } = require('./lib/discovery')
+const { tidy } = require('./lib/victron')
 
 module.exports = function createPlugin(app) {
   let consumer = null
@@ -248,7 +249,7 @@ function measurementDelta(device, decoded, reception = {}) {
       timestamp: new Date().toISOString(),
       values: candidates
         .filter(([, value]) => value != null)
-        .map(([path, value]) => ({ path, value }))
+        .map(([path, value]) => ({ path, value: tidy(value) }))
     }]
   }
 }
