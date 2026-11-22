@@ -123,6 +123,19 @@ function signedUnlessAllOnes(buffer, start, width, convert = value => value) {
   return convert(signed)
 }
 
+/**
+ * The 22-bit battery current of the battery monitor and DC energy meter
+ * records, in A. The specification's NA value is all ones, but a Smart
+ * Battery Sense, which has no current sensor, sends the largest positive
+ * value (0x1FFFFF, 2097.151 A) instead, so that is unavailable too.
+ */
+const CURRENT_22_MAX_POSITIVE = 0x1fffff
+
+function batteryCurrent22(data) {
+  if (readBits(data, 66, 22) === CURRENT_22_MAX_POSITIVE) return null
+  return signedUnlessAllOnes(data, 66, 22, value => value * 0.001)
+}
+
 function decodeLynxSmartBms(data) {
   const error = readBits(data, 0, 8)
   const ttg = readBits(data, 8, 16)
@@ -306,7 +319,7 @@ function decodeBatteryMonitor(data) {
     battery_voltage_v: valueUnless(voltage, 0x7fff, value => value * 0.01),
     alarm_reason: alarmReason,
     ...decodeAuxInput(auxRaw, auxSelector),
-    battery_current_a: signedUnlessAllOnes(data, 66, 22, value => value * 0.001),
+    battery_current_a: batteryCurrent22(data),
     consumed_ah: valueUnless(consumedAh, 0xfffff, value => -value * 0.1),
     state_of_charge_percent: valueUnless(soc, 0x3ff, value => value * 0.1)
   }
@@ -339,7 +352,7 @@ function decodeDcEnergyMeter(data) {
     // The DC energy meter table lists selectors 0, 2 and 3 only: this record
     // has no mid-point voltage reading.
     ...decodeAuxInput(auxRaw, auxSelector, false),
-    battery_current_a: signedUnlessAllOnes(data, 66, 22, value => value * 0.001)
+    battery_current_a: batteryCurrent22(data)
   }
 }
 

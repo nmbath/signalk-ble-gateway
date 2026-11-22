@@ -546,6 +546,14 @@ test('treats an all-ones signed current as unavailable', () => {
   }
 })
 
+test('treats a Smart Battery Sense current as unavailable', () => {
+  // Decrypted from a live Smart Battery Sense, which has no current sensor
+  // and sends the largest positive current, 2097.151 A
+  const decoded = decodeBatteryMonitor(Buffer.from('ffffd4040000a16dfeff7fffffffff', 'hex'))
+  assert.equal(decoded.battery_current_a, null)
+  assert.equal(decoded.battery_voltage_v, 12.36)
+})
+
 test('removes floating-point noise from decoded values', () => {
   const { tidy } = require('../lib/victron')
   assert.deepEqual(tidy({ v: 1237 * 0.01, cells: [{ v: 280.65000000000003 }], state: 'ok', none: null }),

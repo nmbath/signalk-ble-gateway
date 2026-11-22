@@ -240,6 +240,10 @@ layouts. No hardware was available, so their values are unverified.
 0x0D  DC energy meter                     -> diagnostic only
 ```
 
+A Smart Battery Sense has no current sensor and fills the battery monitor
+record's current with its largest positive value (2097.151 A); that value is
+treated as unavailable, like the specification's all-ones NA.
+
 The battery monitor and DC energy meter records carry a 16-bit auxiliary field
 whose meaning depends on a 2-bit selector stored after it: starter voltage,
 mid-point voltage, or temperature. Only the selected reading is returned; the
