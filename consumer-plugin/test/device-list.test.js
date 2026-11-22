@@ -17,6 +17,7 @@ test('lists heard devices with what needs no key', () => {
   const [row] = deviceRows({ discovered: [SENSE], groupOf }, NOW)
   assert.deepEqual(row, {
     group: 'electrical.batteries',
+    groups: ['electrical.batteries'],
     mac: SENSE.mac,
     modelId: 0xa3a5,
     modelName: 'Smart Battery Sense (Rev2)',

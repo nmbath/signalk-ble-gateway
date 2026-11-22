@@ -63,7 +63,7 @@ test('loads as a classic script that the admin UI does not take for a React 16 r
 test('fills a new device from what was heard', () => {
   assert.deepEqual(panel.draftFor(SENSE_ROW, {}), {
     isNew: true, mac: SENSE_ROW.mac, name: 'Starter Battery', id: '', advertisementKey: '',
-    enabled: true, secondaryBattery: '', group: null, needsPath: false
+    enabled: true, secondaryBattery: '', group: null, groups: [], needsPath: false
   })
   assert.deepEqual(panel.draftFor({ ...SENSE_ROW, group: 'electrical.batteries' }, {}).needsPath, true)
   assert.equal(panel.draftFor(SHUNT_ROW, {}).name, 'SmartShunt 500A/50mV')
@@ -103,6 +103,18 @@ test('two batteries of one bank each get a path below it', () => {
   // Saved without the leading dot
   assert.equal(panel.applyDraft(bank, { ...second, id: '.1.lithium.2' }).devices[1].id, '1.lithium.2')
   assert.equal(panel.pathOf(rows[0]), 'electrical.batteries.1.lithium.1')
+})
+
+test('a VE.Bus inverter/charger takes its path in both of its groups', () => {
+  const groups = ['electrical.inverters', 'electrical.chargers']
+  const multi = { ...SENSE_ROW, mac: '00:00:00:00:00:0C', group: groups[0], groups }
+  const battery = { ...SENSE_ROW, mac: '00:00:00:00:00:01', group: 'electrical.chargers', groups: ['electrical.chargers'] }
+  const configuration = { devices: [{ id: '1', name: 'Bat', mac: battery.mac, advertisementKey: KEY }] }
+  const rows = panel.mergeRows([battery, multi], configuration)
+  const draft = { ...panel.draftFor(rows.find(row => row.mac === multi.mac), configuration), name: 'Multi', advertisementKey: KEY }
+  assert.match(panel.validate({ ...draft, id: '1' }, configuration, rows).id, /already publishes/)
+  assert.deepEqual(panel.validate({ ...draft, id: '2' }, configuration, rows), {})
+  assert.deepEqual(panel.pathsOf({ ...multi, deviceId: '2' }), groups.map(group => group + '.2'))
 })
 
 test('adds, changes and removes devices in the configuration', () => {

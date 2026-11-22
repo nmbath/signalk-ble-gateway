@@ -206,6 +206,7 @@
         enabled: existing.enabled !== false,
         secondaryBattery: existing.secondaryBattery || '',
         group: row.group || null,
+        groups: row.groups || [],
         // A type Signal K has no group for publishes no readings, so needs no path
         needsPath: Boolean(row.group) || !row.recordName
       }
@@ -219,6 +220,7 @@
       enabled: true,
       secondaryBattery: '',
       group: row.group || null,
+      groups: row.groups || [],
       needsPath: Boolean(row.group) || !row.recordName
     }
   }
@@ -234,19 +236,38 @@
    * group is not known.
    */
   function pathOf(row) {
+    return pathsOf(row)[0] || null
+  }
+
+  /**
+   * Every Signal K path a configured row publishes to, its own first: one
+   * for most devices, two for a VE.Bus inverter/charger, which publishes
+   * under inverters and chargers with the same ID.
+   */
+  function pathsOf(row) {
     var id = relativePath(row.deviceId)
-    if (!id) return null
-    return row.group ? row.group + '.' + id : id
+    if (!id) return []
+    var groups = groupsOf(row)
+    if (!groups.length) return [id]
+    return groups.map(function (group) { return group + '.' + id })
+  }
+
+  /** Groups a row or draft publishes under, its own group first. */
+  function groupsOf(item) {
+    if (!item) return []
+    if (item.groups && item.groups.length) return item.groups
+    return item.group ? [item.group] : []
   }
 
   /**
    * Field errors of a draft, keyed by field; empty when it can be saved.
-   * `rows` (the merged rows) give the group of other devices: two devices
-   * may use the same ID only in different groups.
+   * `rows` (the merged rows) give the groups of other devices: two devices
+   * may use the same ID only when they share no group.
    */
   function validate(draft, configuration, rows) {
     var errors = {}
-    var groupByMac = new Map((rows || []).map(function (row) { return [row.mac, row.group || null] }))
+    var groupsByMac = new Map((rows || []).map(function (row) { return [row.mac, groupsOf(row)] }))
+    var draftGroups = groupsOf(draft)
     var others = configuredDevices(configuration).filter(function (device) {
       return normalizeMac(device.mac) !== draft.mac
     })
@@ -262,8 +283,9 @@
     } else if (!ID_PATTERN.test(draft.id.trim())) {
       errors.id = 'Use dot-separated letters, digits, - or _, e.g. 1 or 1.lithium.2.'
     } else if (others.some(function (device) {
-      var group = groupByMac.get(normalizeMac(device.mac)) || null
-      return relativePath(device.id) === id && (!group || !draft.group || group === draft.group)
+      var groups = groupsByMac.get(normalizeMac(device.mac)) || []
+      return relativePath(device.id) === id && (!groups.length || !draftGroups.length ||
+        groups.some(function (group) { return draftGroups.indexOf(group) >= 0 }))
     })) {
       errors.id = 'Another device already publishes to this path.'
     }
@@ -273,7 +295,7 @@
     var secondary = relativePath(draft.secondaryBattery)
     if (secondary && !ID_PATTERN.test(draft.secondaryBattery.trim())) {
       errors.secondaryBattery = 'Use dot-separated letters, digits, - or _, e.g. 2.'
-    } else if (secondary && secondary === id && draft.group === SECONDARY_GROUP) {
+    } else if (secondary && secondary === id && draftGroups.indexOf(SECONDARY_GROUP) >= 0) {
       errors.secondaryBattery = 'Must differ from the device\'s own path.'
     }
     return errors
@@ -397,8 +419,10 @@
           draft.needsPath || draft.id ? field(fieldProps({
             name: 'id', label: 'Signal K path', width: 'col-md-6', mono: true, prefix: row.group,
             placeholder: 'e.g. 1',
-            help: 'Where its readings go below ' + (row.group || 'its group') +
-              ', e.g. 1, or 1.lithium.2 for a battery that is part of bank 1.'
+            help: groupsOf(row).length > 1
+              ? 'Where its readings go below each of ' + groupsOf(row).join(', ') + ', e.g. 1.'
+              : 'Where its readings go below ' + (row.group || 'its group') +
+                ', e.g. 1, or 1.lithium.2 for a battery that is part of bank 1.'
           })) : h('div', { className: 'col-md-6 form-text' },
             'Signal K has no group for this type of device, so it publishes only its identity, under sensors.<MAC>.'),
           showSecondary ? field(fieldProps({
@@ -441,7 +465,9 @@
       h('td', null, h('code', null, row.mac)),
       h('td', null, row.rssi === null ? '-' : badge(rssiColor(row.rssi), row.rssi + ' dBm')),
       h('td', null, formatAge(row.lastSeen, props.now)),
-      h('td', null, row.configured && pathOf(row) ? h('code', null, pathOf(row)) : '-'),
+      h('td', null, !row.configured || !pathOf(row) ? '-'
+        : pathsOf(row).length === 1 ? h('code', null, pathOf(row))
+          : pathsOf(row).map(function (path) { return h('div', { key: path }, h('code', null, path)) })),
       h('td', null, status ? badge(status.color, status.label) : h('span', { className: 'text-body-secondary' }, 'Not configured')))
     }
 
@@ -671,6 +697,7 @@
     removeDevice: removeDevice,
     startConfiguration: startConfiguration,
     pathOf: pathOf,
+    pathsOf: pathsOf,
     rssiColor: rssiColor,
     statusOf: statusOf,
     tabsFor: tabsFor,

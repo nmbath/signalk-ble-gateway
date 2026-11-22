@@ -27,8 +27,9 @@ function normalizeMac(value) {
  * @param {object[]} options.discovered from VictronDiscovery.list()
  * @param {object[]} options.configured the configured devices
  * @param {object[]} options.states VictronConsumer.status().devices
- * @param {function} options.groupOf record type -> Signal K group the device
- *   publishes under (e.g. `electrical.batteries`), or null
+ * @param {function} options.groupOf record type -> Signal K groups the device
+ *   publishes under, its own group first (e.g. `['electrical.batteries']`);
+ *   a single group or null is also accepted
  * @param {number} now current time in milliseconds
  */
 function deviceRows({ discovered = [], configured = [], states = [], groupOf = () => null } = {}, now = Date.now()) {
@@ -62,9 +63,16 @@ function deviceRows({ discovered = [], configured = [], states = [], groupOf = (
     a.mac.localeCompare(b.mac))
 }
 
+// `group` is the device's own group, the prefix its ID is entered under;
+// `groups` every group it publishes under.
+function groupsOf(value) {
+  const groups = [].concat(value || [])
+  return { group: groups[0] || null, groups }
+}
+
 function heardRow(device, groupOf) {
   return {
-    group: groupOf(device.recordType) || null,
+    ...groupsOf(groupOf(device.recordType)),
     mac: device.mac,
     modelId: device.modelId,
     modelName: modelName(device.modelId),
@@ -82,6 +90,7 @@ function heardRow(device, groupOf) {
 function emptyRow(mac) {
   return {
     group: null,
+    groups: [],
     mac,
     modelId: null,
     modelName: null,

@@ -82,7 +82,7 @@ module.exports = function createPlugin(app) {
           running: Boolean(listener),
           devices: deviceRows({
             discovered: discovery.list(),
-            groupOf: deviceGroup,
+            groupOf: deviceGroups,
             configured,
             states: consumer ? consumer.status().devices : []
           })
@@ -120,12 +120,13 @@ function chargingMode(state) {
 // A record type without an entry here publishes nothing. Falling back to a
 // path builder written for a different device would emit measurements under
 // paths that do not describe the device that sent them.
-// Records 0x09, 0x0b, 0x0c and 0x0d decode but publish nothing: Signal K has
-// no battery-protect, Multi, VE.Bus or DC-meter group, and inventing paths
-// below an unrelated group would misdescribe the device. Their decoded values
-// are visible in the status API and the web application.
+// Records 0x09, 0x0b and 0x0d decode but publish nothing: Signal K has no
+// battery-protect, Multi or DC-meter group, and inventing paths below an
+// unrelated group would misdescribe the device. Their decoded values are
+// visible in the status API and the web application.
 // Each entry names the Signal K electrical group the device is published
-// under.
+// under, and `alsoGroups` any further groups its readings go to under the
+// same ID.
 const PATH_BUILDERS = {
   0x01: { group: 'solar', build: solarChargerCandidates },
   0x02: { group: 'batteries', build: batteryMonitorCandidates },
@@ -134,6 +135,7 @@ const PATH_BUILDERS = {
   0x05: { group: 'batteries', build: smartLithiumCandidates },
   0x06: { group: 'inverters', build: inverterRsCandidates },
   0x0a: { group: 'batteries', build: lynxCandidates },
+  0x0c: { group: 'inverters', alsoGroups: ['chargers'], build: veBusCandidates },
   0x0f: { group: 'chargers', build: orionCandidates }
 }
 
@@ -142,8 +144,19 @@ const PATH_BUILDERS = {
  * a record type that publishes nothing.
  */
 function deviceGroup(recordType) {
+  return deviceGroups(recordType)[0] || null
+}
+
+/**
+ * Every Signal K group a device publishes under, its own group first: one
+ * for most devices, `electrical.inverters` and `electrical.chargers` for a
+ * VE.Bus inverter/charger. Empty for a record
+ * type that publishes nothing.
+ */
+function deviceGroups(recordType) {
   const builder = PATH_BUILDERS[recordType]
-  return builder ? `electrical.${builder.group}` : null
+  if (!builder) return []
+  return [builder.group, ...(builder.alsoGroups || [])].map(group => `electrical.${group}`)
 }
 
 /**
@@ -164,6 +177,18 @@ function devicePath(device, recordType) {
   const group = deviceGroup(recordType)
   const id = relativePath(device.id)
   return group && id ? `${group}.${id}` : null
+}
+
+/**
+ * Base paths of a device in each of its groups, keyed by group name without
+ * the `electrical.` prefix, e.g. `{ inverters: 'electrical.inverters.1',
+ * chargers: 'electrical.chargers.1' }`. Empty without an ID.
+ */
+function devicePaths(device, recordType) {
+  const id = relativePath(device.id)
+  if (!id) return {}
+  return Object.fromEntries(deviceGroups(recordType)
+    .map(group => [group.slice('electrical.'.length), `${group}.${id}`]))
 }
 
 /**
@@ -215,13 +240,14 @@ function sensorPath(device) {
 function measurementDelta(device, decoded, reception = {}) {
   const values = decoded.measurements
   const base = devicePath(device, decoded.record_type)
-  const candidates = base ? PATH_BUILDERS[decoded.record_type].build(base, values) : []
+  const paths = devicePaths(device, decoded.record_type)
+  const candidates = base ? PATH_BUILDERS[decoded.record_type].build(base, values, paths) : []
   // The item's name goes with every reading, not only when it changes:
   // Signal K's source priorities hand a path to a lower-ranked source once
   // the preferred one has been silent for the fallback time (15 s by
   // default), so a name sent once would be taken over by any other source
   // that keeps repeating it.
-  if (base) candidates.push([`${base}.name`, device.name || device.mac])
+  for (const path of Object.values(paths)) candidates.push([`${path}.name`, device.name || device.mac])
   if (device.mac) {
     const sensor = sensorPath(device)
     candidates.push(
@@ -382,6 +408,57 @@ function orionCandidates(base, values) {
   ]
 }
 
+// VE.Bus device states as signalk-venus-plugin names them for a
+// com.victronenergy.vebus service.
+const VEBUS_STATES = {
+  0: 'off',
+  1: 'low power',
+  2: 'fault',
+  3: 'bulk',
+  4: 'absorption',
+  5: 'float',
+  6: 'storage',
+  7: 'equalize',
+  8: 'passthru',
+  9: 'inverting',
+  10: 'power assist',
+  11: 'power supply',
+  244: 'sustain',
+  245: 'wake up',
+  252: 'external control'
+}
+const VEBUS_STATE_UNAVAILABLE = 0xff
+
+// A MultiPlus or Quattro (VE.Bus) is published as signalk-venus-plugin
+// publishes it from a GX device, so the BLE readings and the GX's line up
+// path for path and can be ranked against each other: the DC side and the
+// state under chargers, the AC side and the state again under inverters.
+// Like the venus plugin, nothing goes under batteries: the battery's own
+// monitor publishes there. The state is published as the plugin does:
+// its name as chargingMode and inverterMode, and its number alongside.
+// The advertisement carries the active AC input's number but not its source
+// type, the VE.Bus error and one combined alarm; the GX publishes these
+// differently, so they stay in the status API.
+function veBusCandidates(_base, values, { inverters, chargers }) {
+  const state = values.state === VEBUS_STATE_UNAVAILABLE ? null : values.state
+  const mode = state == null ? null : (VEBUS_STATES[state] || String(state))
+  return [
+    [`${chargers}.voltage`, values.battery_voltage_v == null
+      ? null : Math.round(values.battery_voltage_v * 100) / 100],
+    [`${chargers}.current`, values.battery_current_a == null
+      ? null : Math.round(values.battery_current_a * 10) / 10],
+    [`${chargers}.temperature`, values.temperature_c == null ? null : values.temperature_c + 273.15],
+    [`${chargers}.capacity.stateOfCharge`, values.state_of_charge_percent == null
+      ? null : values.state_of_charge_percent / 100],
+    [`${chargers}.chargingMode`, mode],
+    [`${chargers}.chargingModeNumber`, state],
+    [`${inverters}.inverterMode`, mode],
+    [`${inverters}.inverterModeNumber`, state],
+    [`${inverters}.acin.power`, values.active_ac_power_w],
+    [`${inverters}.acout.power`, values.ac_out_power_w]
+  ]
+}
+
 const VICTRON_VENDOR = 'Victron Energy'
 
 /**
@@ -413,7 +490,7 @@ function identityDelta(device, decoded, advertisedName) {
     ...(base ? [
       [`${sensor}.dataType`, link.dataType],
       [`${sensor}.instance`, link.instance],
-      [`${base}.name`, name]
+      ...Object.values(devicePaths(device, decoded.record_type)).map(path => [`${path}.name`, name])
     ] : [])
   ]
   return {

@@ -154,7 +154,7 @@ electrical.batteries.2.voltage         its readings
 
 `<dataType>.<instance>` is where the readings are published, which links a
 sensor to the battery, charger or inverter it measures. A record type
-without a Signal K group (Smart Battery Protect, Multi RS, VE.Bus, DC energy
+without a Signal K group (Smart Battery Protect, Multi RS, DC energy
 meter) has no `dataType` or `instance`. The measured item itself gets only
 its `name`: a battery watched by a Smart Battery Sense or SmartShunt is not a
 Victron product, so no manufacturer is claimed for it. The model is the hex
@@ -202,7 +202,9 @@ yet) and so enables the plugin; the devices it hears then appear.
   the **Signal K path** below the device's group, shown in front of the
   field: `2` for `electrical.batteries.2`. Two devices cannot share a path
   in the same group. A type Signal K has no group for (Smart
-  BatteryProtect, Multi RS, VE.Bus, DC energy meter) needs none. A BMV or
+  BatteryProtect, Multi RS, DC energy meter) needs none. A VE.Bus
+  inverter/charger takes one path, used below both inverters and chargers;
+  the table lists both. A BMV or
   SmartShunt also offers the secondary battery path. **Add device** or **Save** stores it, **Remove** deletes it.
 
   The Name column shows a configured device's display name, otherwise the
@@ -223,6 +225,36 @@ has no build step and no runtime dependencies. It reads
 `/plugins/signalk-victron-ble-consumer/devices`, which needs an admin login
 and never returns advertisement keys.
 
+## VE.Bus inverter/chargers
+
+A MultiPlus or Quattro with a VE.Bus Smart dongle (record 0x0C) is published
+on the paths signalk-venus-plugin uses for the same inverter/charger read
+from a GX device, so the two line up path for path and can be ranked in
+Signal K's source priorities. The one configured path is used below both
+groups:
+
+```text
+electrical.chargers.<id>.voltage                  battery voltage, V
+electrical.chargers.<id>.current                  battery current, A (+ charging)
+electrical.chargers.<id>.temperature              battery temperature, K
+electrical.chargers.<id>.capacity.stateOfCharge   ratio
+electrical.chargers.<id>.chargingMode             state, e.g. inverting, float, external control
+electrical.chargers.<id>.chargingModeNumber       state number, e.g. 252
+electrical.inverters.<id>.inverterMode            state, as chargingMode
+electrical.inverters.<id>.inverterModeNumber      state number
+electrical.inverters.<id>.acin.power              active AC input power, W
+electrical.inverters.<id>.acout.power             AC output power, W
+```
+
+As with the venus plugin, nothing is published under `electrical.batteries`:
+the battery's own monitor publishes there.
+
+The state names are signalk-venus-plugin's, not Signal K's charging mode
+enumeration, so both plugins send the same values. `sensors.<MAC>.dataType`
+is `electrical.inverters`. The active AC input's number (the advertisement
+does not say whether it is shore or generator), the VE.Bus error and the
+combined alarm stay in the status API.
+
 ## Records decoded from the specification but not yet tested
 
 The following records are decoded from the published Victron "Extra
@@ -236,7 +268,6 @@ layouts. No hardware was available, so their values are unverified.
 0x06  Inverter RS                         -> electrical.inverters.<id>
 0x09  Smart Battery Protect               -> diagnostic only
 0x0B  Multi RS                            -> diagnostic only
-0x0C  VE.Bus                              -> diagnostic only
 0x0D  DC energy meter                     -> diagnostic only
 ```
 

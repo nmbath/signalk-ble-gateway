@@ -196,6 +196,34 @@ test('publishes Lynx measurements on battery paths', () => {
   ])
 })
 
+test('publishes a VE.Bus inverter/charger on the paths signalk-venus-plugin uses', () => {
+  const { decodeVeBus } = require('../lib/victron')
+  // A MultiPlus-II on shore power, decrypted from a live advertisement
+  const measurements = decodeVeBus(Buffer.from('fc000000520a5d00f80100b5e2', 'hex'))
+  const device = { id: 'multi', name: 'MultiPlus', mac: 'F5:50:41:11:71:20' }
+  const delta = measurementDelta(device, { record_type: 0x0c, measurements })
+  assert.deepEqual(delta.updates[0].values.filter(({ path }) => path.startsWith('electrical.')), [
+    { path: 'electrical.chargers.multi.voltage', value: 26.42 },
+    { path: 'electrical.chargers.multi.current', value: 0 },
+    { path: 'electrical.chargers.multi.temperature', value: 286.15 },
+    { path: 'electrical.chargers.multi.capacity.stateOfCharge', value: 0.69 },
+    { path: 'electrical.chargers.multi.chargingMode', value: 'external control' },
+    { path: 'electrical.chargers.multi.chargingModeNumber', value: 252 },
+    { path: 'electrical.inverters.multi.inverterMode', value: 'external control' },
+    { path: 'electrical.inverters.multi.inverterModeNumber', value: 252 },
+    { path: 'electrical.inverters.multi.acin.power', value: 93 },
+    { path: 'electrical.inverters.multi.acout.power', value: 63 },
+    { path: 'electrical.inverters.multi.name', value: 'MultiPlus' },
+    { path: 'electrical.chargers.multi.name', value: 'MultiPlus' }
+  ])
+
+  const identity = identityDelta(device, { record_type: 0x0c, model_id: 0x2615, model_name: 'MultiPlus-II 24/5000/120-50' }, null)
+  const values = Object.fromEntries(identity.updates[0].values.map(({ path, value }) => [path, value]))
+  assert.equal(values['sensors.F5-50-41-11-71-20.dataType'], 'electrical.inverters')
+  assert.equal(values['electrical.chargers.multi.name'], 'MultiPlus')
+  assert.equal(Object.keys(values).some(path => path.startsWith('electrical.batteries.')), false)
+})
+
 test('publishes SmartLithium cells and balancer status like bt-sensors', () => {
   const cell = voltage => ({ bound: 'exact', voltage_v: voltage })
   const measurements = {
