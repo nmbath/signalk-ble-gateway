@@ -316,9 +316,27 @@ descriptions sent as metadata. The record carries no current or state of
 charge; those come from the battery monitor or BMS. The BMS and error flags
 stay in the status API.
 
-Records `0x07` and `0x08` are not implemented. The specification marks both
-layouts as still to be determined and subject to change, so decoding them
-would be guesswork.
+Record `0x07` (GX device) is not implemented: the specification marks its
+layout as still to be determined and subject to change.
+
+Record `0x08` (AC charger: Phoenix Smart and Blue Smart IP chargers) is
+checked against live chargers. It is published as signalk-venus-plugin
+publishes a charger read from a GX device:
+
+```text
+electrical.chargers.<id>.voltage                 output 1 voltage, V
+electrical.chargers.<id>.current                 output 1 current, A
+electrical.chargers.<id>-second.voltage          output 2, on a charger that has it
+electrical.chargers.<id>-second.current
+electrical.chargers.<id>-third.voltage           output 3
+electrical.chargers.<id>-third.current
+electrical.chargers.<id>.temperature             K
+electrical.chargers.<id>.acin.1.current          AC input current, A
+electrical.chargers.<id>.chargingMode            state, e.g. bulk, storage, power supply
+electrical.chargers.<id>.chargingModeNumber      state number
+```
+
+The error code stays in the status API.
 
 If you have any of these devices, please compare the plugin values with
 VictronConnect and report the result. Do not post advertisement keys, and mask

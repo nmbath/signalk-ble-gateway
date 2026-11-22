@@ -656,6 +656,42 @@ function decodeOrionOffReasons(value) {
 }
 
 /**
+ * Decode the AC charger record (type 0x08): Phoenix Smart and Blue Smart IP
+ * chargers. Outputs a charger does not have are reported unavailable.
+ *
+ * spec bit 32  -> 0    device state       8 bits,                   NA 0xFF
+ * spec bit 40  -> 8    charger error      8 bits,                   NA 0xFF
+ * spec bit 48  -> 16   output 1 voltage  13 bits, 0.01 V,           NA 0x1FFF
+ * spec bit 61  -> 29   output 1 current  11 bits, 0.1 A,            NA 0x7FF
+ * spec bit 72  -> 40   output 2 voltage  13 bits, 0.01 V,           NA 0x1FFF
+ * spec bit 85  -> 53   output 2 current  11 bits, 0.1 A,            NA 0x7FF
+ * spec bit 96  -> 64   output 3 voltage  13 bits, 0.01 V,           NA 0x1FFF
+ * spec bit 109 -> 77   output 3 current  11 bits, 0.1 A,            NA 0x7FF
+ * spec bit 120 -> 88   temperature        7 bits, 1 C, offset -40,  NA 0x7F
+ * spec bit 127 -> 95   AC current         9 bits, 0.1 A,            NA 0x1FF
+ */
+function decodeAcCharger(data) {
+  const state = readBits(data, 0, 8)
+  const error = readBits(data, 8, 8)
+  const output = index => ({
+    voltage_v: valueUnless(readBits(data, 16 + index * 24, 13), 0x1fff, value => value * 0.01),
+    current_a: valueUnless(readBits(data, 29 + index * 24, 11), 0x7ff, value => value * 0.1)
+  })
+  const temperature = readBits(data, 88, 7)
+  const acCurrent = readBits(data, 95, 9)
+
+  return {
+    state: state === 0xff ? null : state,
+    state_name: deviceState(state),
+    error: error === 0xff ? null : error,
+    error_name: chargerErrorName(error),
+    outputs: [output(0), output(1), output(2)],
+    temperature_c: valueUnless(temperature, 0x7f, value => value - 40),
+    ac_current_a: valueUnless(acCurrent, 0x1ff, value => value * 0.1)
+  }
+}
+
+/**
  * Decoders for the record types this consumer has validated. A record type
  * that is absent here is reported by name with `measurements: null` rather
  * than decoded by a decoder written for a different layout.
@@ -667,6 +703,7 @@ const RECORD_DECODERS = {
   0x04: decodeDcDcConverter,
   0x05: decodeSmartLithium,
   0x06: decodeInverterRs,
+  0x08: decodeAcCharger,
   0x09: decodeBatteryProtect,
   0x0a: decodeLynxSmartBms,
   0x0b: decodeMultiRs,
@@ -676,6 +713,7 @@ const RECORD_DECODERS = {
 }
 
 module.exports = {
+  decodeAcCharger,
   tidy,
   RECORD_TYPES,
   readClearHeader,

@@ -134,6 +134,7 @@ const PATH_BUILDERS = {
   0x04: { group: 'chargers', build: dcDcConverterCandidates },
   0x05: { group: 'batteries', build: smartLithiumCandidates },
   0x06: { group: 'inverters', build: inverterRsCandidates },
+  0x08: { group: 'chargers', build: acChargerCandidates },
   0x0a: { group: 'batteries', build: lynxCandidates },
   0x0c: { group: 'inverters', alsoGroups: ['chargers'], build: veBusCandidates },
   0x0f: { group: 'chargers', build: orionCandidates }
@@ -405,6 +406,48 @@ function orionCandidates(base, values) {
     [`${base}.chargingMode`, chargingMode(values.state_name)],
     [`${base}.chargerState`, values.state_name],
     [`${base}.chargerError`, values.error_name]
+  ]
+}
+
+// AC charger states as signalk-venus-plugin names them for a
+// com.victronenergy.charger service.
+const AC_CHARGER_STATES = {
+  0: 'off',
+  1: 'low power mode',
+  2: 'fault',
+  3: 'bulk',
+  4: 'absorption',
+  5: 'float',
+  6: 'storage',
+  7: 'equalize',
+  8: 'passthru',
+  9: 'inverting',
+  10: 'power assist',
+  11: 'power supply',
+  252: 'bulk protection'
+}
+// Path suffixes signalk-venus-plugin gives a charger's second and third
+// outputs: electrical.chargers.<id>-second and <id>-third.
+const AC_CHARGER_OUTPUT_SUFFIXES = ['', '-second', '-third']
+
+// A Phoenix Smart or Blue Smart IP charger is published as
+// signalk-venus-plugin publishes it from a GX device: each output's voltage
+// and current, the first under the charger's path and the others under
+// <path>-second and <path>-third, then its temperature, AC input current and
+// state, as the plugin's state name (chargingMode) and number. The error
+// code, which the plugin raises as a notification, stays in the status API.
+function acChargerCandidates(base, values) {
+  const outputs = (values.outputs || []).flatMap((output, index) => [
+    [`${base}${AC_CHARGER_OUTPUT_SUFFIXES[index]}.voltage`, output.voltage_v],
+    [`${base}${AC_CHARGER_OUTPUT_SUFFIXES[index]}.current`, output.current_a]
+  ])
+  const state = values.state
+  return [
+    ...outputs,
+    [`${base}.temperature`, values.temperature_c == null ? null : values.temperature_c + 273.15],
+    [`${base}.acin.1.current`, values.ac_current_a],
+    [`${base}.chargingMode`, state == null ? null : (AC_CHARGER_STATES[state] || String(state))],
+    [`${base}.chargingModeNumber`, state]
   ]
 }
 

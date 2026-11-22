@@ -224,6 +224,28 @@ test('publishes a VE.Bus inverter/charger on the paths signalk-venus-plugin uses
   assert.equal(Object.keys(values).some(path => path.startsWith('electrical.batteries.')), false)
 })
 
+test('publishes an AC charger on the paths signalk-venus-plugin uses', () => {
+  const output = (voltage, current) => ({ voltage_v: voltage, current_a: current })
+  const measurements = {
+    state: 3,
+    outputs: [output(26.4, 12.5), output(13.6, 1.2), output(null, null)],
+    temperature_c: 13,
+    ac_current_a: 1.8
+  }
+  const delta = measurementDelta({ id: 'shore', name: 'Shore charger' }, { record_type: 0x08, measurements })
+  assert.deepEqual(delta.updates[0].values, [
+    { path: 'electrical.chargers.shore.voltage', value: 26.4 },
+    { path: 'electrical.chargers.shore.current', value: 12.5 },
+    { path: 'electrical.chargers.shore-second.voltage', value: 13.6 },
+    { path: 'electrical.chargers.shore-second.current', value: 1.2 },
+    { path: 'electrical.chargers.shore.temperature', value: 286.15 },
+    { path: 'electrical.chargers.shore.acin.1.current', value: 1.8 },
+    { path: 'electrical.chargers.shore.chargingMode', value: 'bulk' },
+    { path: 'electrical.chargers.shore.chargingModeNumber', value: 3 },
+    { path: 'electrical.chargers.shore.name', value: 'Shore charger' }
+  ])
+})
+
 test('publishes SmartLithium cells and balancer status like bt-sensors', () => {
   const cell = voltage => ({ bound: 'exact', voltage_v: voltage })
   const measurements = {

@@ -4,6 +4,7 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const crypto = require('node:crypto')
 const {
+  decodeAcCharger,
   decodeBatteryMonitor,
   decodeBatteryProtect,
   decodeDcEnergyMeter,
@@ -552,6 +553,30 @@ test('treats a Smart Battery Sense current as unavailable', () => {
   const decoded = decodeBatteryMonitor(Buffer.from('ffffd4040000a16dfeff7fffffffff', 'hex'))
   assert.equal(decoded.battery_current_a, null)
   assert.equal(decoded.battery_voltage_v, 12.36)
+})
+
+test('decodes AC chargers from live advertisements', () => {
+  // Phoenix Smart IP43 24|25 in storage, and Blue Smart IP65 12|25 in power
+  // supply mode, which reports no temperature or AC current
+  const { tidy } = require('../lib/victron')
+  assert.deepEqual(tidy(decodeAcCharger(Buffer.from('0600500a00ffffffffffff3500', 'hex'))), {
+    state: 6,
+    state_name: 'storage',
+    error: 0,
+    error_name: 'no_error',
+    outputs: [
+      { voltage_v: 26.4, current_a: 0 },
+      { voltage_v: null, current_a: null },
+      { voltage_v: null, current_a: null }
+    ],
+    temperature_c: 13,
+    ac_current_a: 0
+  })
+  const ip65 = decodeAcCharger(Buffer.from('0b00450500ffffffffffffffff', 'hex'))
+  assert.equal(ip65.state_name, 'power_supply')
+  assert.equal(ip65.outputs[0].voltage_v, 13.49)
+  assert.equal(ip65.temperature_c, null)
+  assert.equal(ip65.ac_current_a, null)
 })
 
 test('removes floating-point noise from decoded values', () => {
