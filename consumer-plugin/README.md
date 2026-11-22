@@ -62,10 +62,18 @@ Keys are never returned by the status API or web application.
 In the paths below, `<id>` stands for the device's configured **Signal K
 path**, which goes below the group: `1` gives `electrical.batteries.1`.
 
-Lynx Smart BMS voltage, current, state of charge, time remaining, and
-temperature are published below `electrical.batteries.<id>`. The web
-application additionally shows consumed capacity, BMS error, I/O status, and
-warning/alarm bit fields.
+Lynx Smart BMS voltage, current, state of charge, time remaining, consumed
+charge and temperature are published below `electrical.batteries.<id>`. The
+web application additionally shows BMS error, I/O status, and warning/alarm
+bit fields.
+
+A BMV, SmartShunt or Lynx's consumed amp-hours are published as
+signalk-venus-plugin publishes them, in coulombs with Venus's sign (negative
+while charge has been taken out):
+
+```text
+electrical.batteries.<id>.capacity.consumedCharge
+```
 
 Orion XS is published as a charger:
 

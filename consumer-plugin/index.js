@@ -334,10 +334,10 @@ function dcDcConverterCandidates(base, values) {
   ]
 }
 
-// SmartShunt and BMV. Signal K states of charge are ratios, capacity is in
-// joules and charge in coulombs, so the advertised percentage and amp-hours
-// are converted. Consumed Ah is negative by specification, and Signal K's
-// dischargeSinceFull is a positive quantity, hence the sign flip.
+// SmartShunt and BMV. Signal K states of charge are ratios and charge is in
+// coulombs, so the advertised percentage and amp-hours are converted.
+// Consumed Ah is published as signalk-venus-plugin publishes it, as
+// capacity.consumedCharge with Venus's sign (negative while discharged).
 function batteryMonitorCandidates(base, values) {
   return [
     [`${base}.voltage`, values.battery_voltage_v],
@@ -345,8 +345,7 @@ function batteryMonitorCandidates(base, values) {
     [`${base}.capacity.stateOfCharge`, values.state_of_charge_percent == null
       ? null : values.state_of_charge_percent / 100],
     [`${base}.capacity.timeRemaining`, values.time_to_go_s],
-    [`${base}.capacity.dischargeSinceFull`, values.consumed_ah == null
-      ? null : -values.consumed_ah * 3600],
+    [`${base}.capacity.consumedCharge`, consumedCharge(values)],
     // The aux temperature is advertised in 0.01 K, which is already the
     // Signal K unit, so it passes through unconverted.
     [`${base}.temperature`, values.temperature_k]
@@ -406,6 +405,10 @@ function inverterRsCandidates(base, values) {
   ]
 }
 
+function consumedCharge(values) {
+  return values.consumed_ah == null ? null : values.consumed_ah * 3600
+}
+
 function lynxCandidates(base, values) {
   return [
     [`${base}.voltage`, values.battery_voltage_v],
@@ -413,6 +416,7 @@ function lynxCandidates(base, values) {
     [`${base}.capacity.stateOfCharge`, values.state_of_charge_percent == null
       ? null : Math.round(values.state_of_charge_percent * 10) / 1000],
     [`${base}.capacity.timeRemaining`, values.time_to_go_s],
+    [`${base}.capacity.consumedCharge`, consumedCharge(values)],
     [`${base}.temperature`, values.temperature_c == null ? null : values.temperature_c + 273.15]
   ]
 }

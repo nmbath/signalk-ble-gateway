@@ -424,6 +424,15 @@ test('publishes DC/DC converter voltages on charger paths', () => {
   ])
 })
 
+test('publishes consumed charge as signalk-venus-plugin does', () => {
+  const delta = measurementDelta({ id: 'house' }, {
+    record_type: 0x02,
+    measurements: { battery_voltage_v: 13.1, consumed_ah: -160.6 }
+  })
+  assert.deepEqual(delta.updates[0].values.find(v => v.path.endsWith('consumedCharge')),
+    { path: 'electrical.batteries.house.capacity.consumedCharge', value: -578160 })
+})
+
 test('publishes nothing for a record type without a path builder', () => {
   const delta = measurementDelta({ id: 'shunt' }, {
     record_type: 0x07,
