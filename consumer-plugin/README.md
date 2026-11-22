@@ -159,7 +159,11 @@ meter) has no `dataType` or `instance`. The measured item itself gets only
 its `name`: a battery watched by a Smart Battery Sense or SmartShunt is not a
 Victron product, so no manufacturer is claimed for it. The model is the hex
 product ID when it is not known. Identity is published when it changes,
-`RSSI` and `lastSeen` with every reading.
+`RSSI` and `lastSeen` with every reading. The measured item's `name` is also
+sent with every reading: Signal K's source priorities give a path to a
+lower-ranked source once the preferred one has been silent for the fallback
+time, so a name sent only once would soon be taken over by, for example, a
+Venus virtual battery that repeats its own.
 
 The path can have more than one segment. Two lithium batteries that make up
 bank 1 can be `1.lithium.1` and `1.lithium.2`, publishing below

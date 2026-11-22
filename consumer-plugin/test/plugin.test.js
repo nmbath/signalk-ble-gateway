@@ -230,6 +230,8 @@ test('publishes below a nested path, linked from the sensor', () => {
   const delta = measurementDelta(device, decoded, { rssi: -73, lastSeen: '2026-11-21T23:34:40.587Z' })
   assert.deepEqual(delta.updates[0].values.map(({ path }) => path), [
     'electrical.batteries.1.lithium.1.voltage',
+    // Sent with every reading, so source priorities never hand it to another source
+    'electrical.batteries.1.lithium.1.name',
     'sensors.C6-88-36-CE-9C-99.RSSI',
     'sensors.C6-88-36-CE-9C-99.lastSeen'
   ])

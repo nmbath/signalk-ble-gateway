@@ -215,6 +215,12 @@ function measurementDelta(device, decoded, reception = {}) {
   const values = decoded.measurements
   const base = devicePath(device, decoded.record_type)
   const candidates = base ? PATH_BUILDERS[decoded.record_type].build(base, values) : []
+  // The item's name goes with every reading, not only when it changes:
+  // Signal K's source priorities hand a path to a lower-ranked source once
+  // the preferred one has been silent for the fallback time (15 s by
+  // default), so a name sent once would be taken over by any other source
+  // that keeps repeating it.
+  if (base) candidates.push([`${base}.name`, device.name || device.mac])
   if (device.mac) {
     const sensor = sensorPath(device)
     candidates.push(
